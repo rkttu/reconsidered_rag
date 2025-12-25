@@ -1,0 +1,132 @@
+"""
+01_download_model.py
+Hugging Face에서 Microsoft Phi-4 mini ONNX 모델을 다운로드하는 모듈
+"""
+
+import os
+import sys
+from pathlib import Path
+from huggingface_hub import snapshot_download, hf_hub_download
+from tqdm import tqdm
+
+
+# 모델 설정
+MODEL_REPO_ID = "microsoft/phi-4-onnx"
+# CPU용 int4 양자화 모델
+MODEL_SUBFOLDER = "cpu_and_mobile/cpu-int4-rtn-block-32-acc-level-4"
+
+# 기본 다운로드 경로
+DEFAULT_MODEL_DIR = Path(__file__).parent / "models" / "phi-4-onnx"
+
+
+def download_phi4_mini_onnx(
+    model_dir: Path = DEFAULT_MODEL_DIR,
+    force_download: bool = False,
+) -> Path:
+    """
+    Hugging Face에서 Phi-4 mini ONNX 모델을 다운로드합니다.
+    
+    Args:
+        model_dir: 모델을 저장할 디렉터리 경로
+        force_download: True이면 기존 모델이 있어도 다시 다운로드
+        
+    Returns:
+        다운로드된 모델 디렉터리 경로
+    """
+    model_dir = Path(model_dir)
+    
+    # 이미 다운로드되었는지 확인
+    model_file = model_dir / "model.onnx"
+    if model_file.exists() and not force_download:
+        print(f"✅ 모델이 이미 존재합니다: {model_dir}")
+        return model_dir
+    
+    print(f"📥 Phi-4 mini ONNX 모델 다운로드 시작...")
+    print(f"   리포지토리: {MODEL_REPO_ID}")
+    print(f"   서브폴더: {MODEL_SUBFOLDER}")
+    print(f"   저장 위치: {model_dir}")
+    
+    # 디렉터리 생성
+    model_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        # snapshot_download를 사용하여 특정 폴더만 다운로드
+        downloaded_path = snapshot_download(
+            repo_id=MODEL_REPO_ID,
+            allow_patterns=[f"{MODEL_SUBFOLDER}/*"],
+            local_dir=model_dir.parent / "phi-4-onnx-temp",
+        )
+        
+        # 다운로드된 서브폴더를 최종 위치로 이동
+        source_path = Path(downloaded_path) / MODEL_SUBFOLDER
+        if source_path.exists():
+            import shutil
+            # 기존 디렉터리가 있으면 삭제
+            if model_dir.exists():
+                shutil.rmtree(model_dir)
+            # 서브폴더를 최종 위치로 이동
+            shutil.move(str(source_path), str(model_dir))
+            # 임시 디렉터리 정리
+            temp_dir = model_dir.parent / "phi-4-onnx-temp"
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+        
+        print(f"\n✅ 모델 다운로드 완료: {model_dir}")
+        
+        # 다운로드된 파일 목록 출력
+        print("\n📁 다운로드된 파일:")
+        for file in sorted(model_dir.iterdir()):
+            size_mb = file.stat().st_size / (1024 * 1024)
+            print(f"   - {file.name} ({size_mb:.2f} MB)")
+            
+        return model_dir
+        
+    except Exception as e:
+        print(f"\n❌ 다운로드 실패: {e}")
+        raise
+
+
+def get_model_path() -> Path:
+    """
+    다운로드된 모델의 경로를 반환합니다.
+    모델이 없으면 자동으로 다운로드합니다.
+    
+    Returns:
+        모델 디렉터리 경로
+    """
+    model_dir = DEFAULT_MODEL_DIR
+    if not (model_dir / "model.onnx").exists():
+        print("⚠️ 모델이 없습니다. 다운로드를 시작합니다...")
+        download_phi4_mini_onnx(model_dir)
+    return model_dir
+
+
+def main():
+    """메인 함수: 모델 다운로드 실행"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Hugging Face에서 Phi-4 mini ONNX 모델을 다운로드합니다."
+    )
+    parser.add_argument(
+        "--model-dir",
+        type=Path,
+        default=DEFAULT_MODEL_DIR,
+        help=f"모델 저장 디렉터리 (기본값: {DEFAULT_MODEL_DIR})",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="기존 모델이 있어도 다시 다운로드",
+    )
+    
+    args = parser.parse_args()
+    
+    download_phi4_mini_onnx(
+        model_dir=args.model_dir,
+        force_download=args.force,
+    )
+
+
+if __name__ == "__main__":
+    main()

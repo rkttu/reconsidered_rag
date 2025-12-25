@@ -1,0 +1,375 @@
+"""
+02_prepare_content.py
+input_docs 디렉터리의 문서를 읽어 Phi-4 LLM으로 분석하고
+YAML front matter가 포함된 마크다운으로 prepared_contents에 저장하는 모듈
+"""
+
+import os
+import sys
+import json
+import yaml
+from pathlib import Path
+from datetime import datetime
+from typing import Any, Optional
+
+import onnxruntime_genai as og  # type: ignore[import-untyped]
+
+
+# 디렉터리 설정
+BASE_DIR = Path(__file__).parent
+INPUT_DIR = BASE_DIR / "input_docs"
+OUTPUT_DIR = BASE_DIR / "prepared_contents"
+MODEL_DIR = BASE_DIR / "models" / "phi-4-onnx"
+
+
+# 프롬프트 템플릿
+ANALYSIS_PROMPT_TEMPLATE = """You are a document analyzer. Analyze the following document and extract metadata.
+
+Document:
+---
+{content}
+---
+
+Please analyze this document and provide the following information in JSON format:
+1. "domain": The main domain/field of this document (e.g., "technology", "science", "business", "education", etc.)
+2. "sub_domain": A more specific sub-domain if applicable
+3. "keywords": An array of 5-10 relevant keywords that describe the main topics
+4. "summary": A brief 1-2 sentence summary of the document
+5. "language": The primary language of the document (e.g., "ko", "en", "ja")
+6. "content_type": The type of content (e.g., "article", "tutorial", "reference", "note", "report")
+7. "difficulty_level": If applicable, the difficulty level ("beginner", "intermediate", "advanced")
+
+Respond ONLY with valid JSON, no additional text."""
+
+
+class Phi4ContentProcessor:
+    """Phi-4 ONNX 모델을 사용한 콘텐츠 처리기"""
+    
+    def __init__(self, model_dir: Path = MODEL_DIR):
+        """
+        Args:
+            model_dir: ONNX 모델이 저장된 디렉터리
+        """
+        self.model_dir = Path(model_dir)
+        self.model: Any = None
+        self.tokenizer: Any = None
+        self._load_model()
+    
+    def _load_model(self) -> None:
+        """ONNX 모델과 토크나이저 로드"""
+        print(f"🔄 모델 로딩 중: {self.model_dir}")
+        
+        if not self.model_dir.exists():
+            raise FileNotFoundError(
+                f"모델 디렉터리가 없습니다: {self.model_dir}\n"
+                "먼저 01_download_model.py를 실행하여 모델을 다운로드하세요."
+            )
+        
+        try:
+            Model = getattr(og, "Model")
+            Tokenizer = getattr(og, "Tokenizer")
+            self.model = Model(str(self.model_dir))
+            self.tokenizer = Tokenizer(self.model)
+            print("✅ 모델 로딩 완료")
+        except Exception as e:
+            raise RuntimeError(f"모델 로딩 실패: {e}")
+    
+    def generate_response(
+        self,
+        prompt: str,
+        max_length: int = 2048,
+        temperature: float = 0.7,
+        top_p: float = 0.9,
+    ) -> str:
+        """
+        Phi-4 모델로 응답 생성
+        
+        Args:
+            prompt: 입력 프롬프트
+            max_length: 최대 생성 토큰 수
+            temperature: 샘플링 온도
+            top_p: Top-p 샘플링 값
+            
+        Returns:
+            생성된 텍스트
+        """
+        import numpy as np
+        
+        # Phi-4 chat 형식으로 프롬프트 구성
+        chat_prompt = f"<|user|>\n{prompt}<|end|>\n<|assistant|>\n"
+        
+        # 토큰화
+        input_tokens = self.tokenizer.encode(chat_prompt)
+        
+        # 생성 파라미터 설정
+        GeneratorParams = getattr(og, "GeneratorParams")
+        Generator = getattr(og, "Generator")
+        params = GeneratorParams(self.model)
+        params.set_search_options(
+            max_length=max_length,
+            temperature=temperature,
+            top_p=top_p,
+        )
+        
+        # 텍스트 생성
+        generator = Generator(self.model, params)
+        
+        # 입력 토큰 추가 (새 API 방식)
+        generator.append_tokens(input_tokens)
+        
+        output_tokens = []
+        
+        while not generator.is_done():
+            generator.generate_next_token()
+            
+            new_token = generator.get_next_tokens()[0]
+            output_tokens.append(new_token)
+        
+        # 디코딩
+        response = self.tokenizer.decode(np.array(output_tokens, dtype=np.int32))
+        
+        # 종료 토큰 제거
+        if "<|end|>" in response:
+            response = response.split("<|end|>")[0]
+        
+        return response.strip()
+    
+    def analyze_document(self, content: str) -> dict:
+        """
+        문서 내용을 분석하여 메타데이터 추출
+        
+        Args:
+            content: 문서 내용
+            
+        Returns:
+            분석된 메타데이터 딕셔너리
+        """
+        # 너무 긴 문서는 앞부분만 사용 (토큰 제한)
+        max_content_length = 8000
+        truncated_content = content[:max_content_length]
+        if len(content) > max_content_length:
+            truncated_content += "\n...[truncated]..."
+        
+        prompt = ANALYSIS_PROMPT_TEMPLATE.format(content=truncated_content)
+        
+        try:
+            response = self.generate_response(prompt, temperature=0.3)
+            
+            # JSON 파싱 시도
+            # 응답에서 JSON 부분만 추출
+            json_start = response.find("{")
+            json_end = response.rfind("}") + 1
+            
+            if json_start != -1 and json_end > json_start:
+                json_str = response[json_start:json_end]
+                metadata = json.loads(json_str)
+                return metadata
+            else:
+                print(f"⚠️ JSON을 찾을 수 없음. 응답: {response[:200]}...")
+                return self._get_default_metadata()
+                
+        except json.JSONDecodeError as e:
+            print(f"⚠️ JSON 파싱 실패: {e}")
+            return self._get_default_metadata()
+        except Exception as e:
+            print(f"⚠️ 분석 중 오류: {e}")
+            return self._get_default_metadata()
+    
+    def _get_default_metadata(self) -> dict:
+        """기본 메타데이터 반환"""
+        return {
+            "domain": "unknown",
+            "sub_domain": None,
+            "keywords": [],
+            "summary": "",
+            "language": "unknown",
+            "content_type": "document",
+            "difficulty_level": None,
+        }
+
+
+def read_document(file_path: Path) -> str:
+    """파일에서 문서 내용 읽기"""
+    encodings = ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]
+    
+    for encoding in encodings:
+        try:
+            return file_path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+    
+    raise ValueError(f"파일 인코딩을 감지할 수 없습니다: {file_path}")
+
+
+def create_markdown_with_frontmatter(
+    original_content: str,
+    metadata: dict,
+    source_file: str,
+) -> str:
+    """
+    YAML front matter가 포함된 마크다운 생성
+    
+    Args:
+        original_content: 원본 문서 내용
+        metadata: 분석된 메타데이터
+        source_file: 원본 파일명
+        
+    Returns:
+        YAML front matter가 포함된 마크다운 문자열
+    """
+    # 메타데이터에 추가 정보 포함
+    frontmatter = {
+        "title": Path(source_file).stem,
+        "source_file": source_file,
+        "processed_at": datetime.now().isoformat(),
+        "domain": metadata.get("domain", "unknown"),
+        "sub_domain": metadata.get("sub_domain"),
+        "keywords": metadata.get("keywords", []),
+        "summary": metadata.get("summary", ""),
+        "language": metadata.get("language", "unknown"),
+        "content_type": metadata.get("content_type", "document"),
+        "difficulty_level": metadata.get("difficulty_level"),
+    }
+    
+    # None 값 제거
+    frontmatter = {k: v for k, v in frontmatter.items() if v is not None}
+    
+    # YAML front matter 생성
+    yaml_content = yaml.dump(
+        frontmatter,
+        default_flow_style=False,
+        allow_unicode=True,
+        sort_keys=False,
+    )
+    
+    # 마크다운 조합
+    markdown = f"""---
+{yaml_content.strip()}
+---
+
+{original_content}
+"""
+    
+    return markdown
+
+
+def process_documents(
+    input_dir: Path = INPUT_DIR,
+    output_dir: Path = OUTPUT_DIR,
+    model_dir: Path = MODEL_DIR,
+):
+    """
+    input_docs의 모든 문서를 처리하여 prepared_contents에 저장
+    
+    Args:
+        input_dir: 입력 문서 디렉터리
+        output_dir: 출력 디렉터리
+        model_dir: 모델 디렉터리
+    """
+    input_dir = Path(input_dir)
+    output_dir = Path(output_dir)
+    
+    # 디렉터리 확인/생성
+    if not input_dir.exists():
+        print(f"⚠️ 입력 디렉터리가 없습니다. 생성합니다: {input_dir}")
+        input_dir.mkdir(parents=True, exist_ok=True)
+        print("📝 input_docs 디렉터리에 처리할 문서를 넣어주세요.")
+        return
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 처리할 파일 확장자
+    supported_extensions = {".txt", ".md", ".markdown", ".rst", ".html", ".htm"}
+    
+    # 입력 파일 목록
+    input_files = [
+        f for f in input_dir.iterdir()
+        if f.is_file() and f.suffix.lower() in supported_extensions
+    ]
+    
+    if not input_files:
+        print(f"⚠️ 처리할 문서가 없습니다: {input_dir}")
+        print(f"   지원 형식: {', '.join(supported_extensions)}")
+        return
+    
+    print(f"\n📚 처리할 문서: {len(input_files)}개")
+    print("=" * 50)
+    
+    # 모델 로드
+    processor = Phi4ContentProcessor(model_dir)
+    
+    # 각 문서 처리
+    success_count = 0
+    for i, input_file in enumerate(input_files, 1):
+        print(f"\n[{i}/{len(input_files)}] 처리 중: {input_file.name}")
+        
+        try:
+            # 문서 읽기
+            content = read_document(input_file)
+            print(f"   📖 문서 길이: {len(content)} 문자")
+            
+            # LLM으로 분석
+            print("   🔍 LLM 분석 중...")
+            metadata = processor.analyze_document(content)
+            print(f"   ✓ 도메인: {metadata.get('domain', 'unknown')}")
+            print(f"   ✓ 키워드: {', '.join(metadata.get('keywords', [])[:5])}")
+            
+            # 마크다운 생성
+            markdown_content = create_markdown_with_frontmatter(
+                original_content=content,
+                metadata=metadata,
+                source_file=input_file.name,
+            )
+            
+            # 출력 파일 저장
+            output_file = output_dir / f"{input_file.stem}.md"
+            output_file.write_text(markdown_content, encoding="utf-8")
+            print(f"   💾 저장: {output_file.name}")
+            
+            success_count += 1
+            
+        except Exception as e:
+            print(f"   ❌ 오류: {e}")
+    
+    print("\n" + "=" * 50)
+    print(f"✅ 완료: {success_count}/{len(input_files)} 문서 처리됨")
+    print(f"📁 출력 위치: {output_dir}")
+
+
+def main():
+    """메인 함수"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="문서를 분석하여 YAML front matter가 포함된 마크다운으로 변환합니다."
+    )
+    parser.add_argument(
+        "--input-dir",
+        type=Path,
+        default=INPUT_DIR,
+        help=f"입력 문서 디렉터리 (기본값: {INPUT_DIR})",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=OUTPUT_DIR,
+        help=f"출력 디렉터리 (기본값: {OUTPUT_DIR})",
+    )
+    parser.add_argument(
+        "--model-dir",
+        type=Path,
+        default=MODEL_DIR,
+        help=f"모델 디렉터리 (기본값: {MODEL_DIR})",
+    )
+    
+    args = parser.parse_args()
+    
+    process_documents(
+        input_dir=args.input_dir,
+        output_dir=args.output_dir,
+        model_dir=args.model_dir,
+    )
+
+
+if __name__ == "__main__":
+    main()
