@@ -23,7 +23,25 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import mistune
+import torch
 from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
+
+
+def get_device_info() -> tuple[str, bool]:
+    """
+    사용 가능한 디바이스 및 FP16 지원 여부 반환
+
+    Returns:
+        (device_name, use_fp16) 튜플
+    """
+    if torch.cuda.is_available():
+        device_name = torch.cuda.get_device_name(0)
+        return device_name, True
+    elif torch.backends.mps.is_available():
+        # Apple Silicon (M1/M2/M3)
+        return "Apple MPS", False  # MPS는 FP16이 제한적
+    else:
+        return "CPU", False
 
 
 # 디렉터리 설정
@@ -458,9 +476,15 @@ class SemanticChunker:
         self._load_model()
     
     def _load_model(self) -> None:
-        """BGE-M3 모델 로드"""
-        print("🔄 BGE-M3 모델 로딩 중...")
-        self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=True)
+        """BGE-M3 모델 로드 (GPU 없으면 CPU 폴백)"""
+        device_name, use_fp16 = get_device_info()
+
+        if use_fp16:
+            print(f"🔄 BGE-M3 모델 로딩 중... (GPU: {device_name}, FP16)")
+        else:
+            print(f"🔄 BGE-M3 모델 로딩 중... ({device_name}, FP32)")
+
+        self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16)
         print("✅ 모델 로딩 완료")
     
     def _get_embeddings(self, texts: list[str]) -> np.ndarray:

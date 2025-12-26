@@ -1,15 +1,32 @@
 # AI Pack - Semantic Chunking with BGE-M3
 
 BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.  
-마크다운 문서를 의미 기반으로 분할하고, 헤딩 계층 구조를 보존합니다.
+다양한 형식의 문서를 마크다운으로 변환하고, 의미 기반으로 분할하며, 헤딩 계층 구조를 보존합니다.
 
 ## 특징
 
+- **다양한 문서 형식 지원**: Microsoft markitdown 활용
+  - 오피스 문서: Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
+  - PDF, HTML, XML, JSON, CSV
+  - 이미지 (EXIF/OCR), 오디오 (음성 인식), 비디오 (자막 추출)
+  - 코드 파일, Jupyter Notebook, ZIP 아카이브
 - **시맨틱 청킹**: 의미 유사도 기반 청크 분할
 - **마크다운 구조 보존**: 헤딩 레벨, 섹션 경로 등 계층 정보 유지
 - **다국어 지원**: BGE-M3의 100+ 언어 지원
 - **증분 업데이트**: 콘텐츠 해시 기반 변경 감지
 - **zstd 압축**: 효율적인 parquet 저장
+
+## 지원 파일 형식
+
+| 카테고리 | 확장자 |
+| ------ | ------ |
+| 오피스 문서 | `.docx`, `.doc`, `.xlsx`, `.xls`, `.pptx`, `.ppt` |
+| PDF/웹 | `.pdf`, `.html`, `.htm`, `.xml`, `.json`, `.csv` |
+| 마크다운/텍스트 | `.md`, `.markdown`, `.txt`, `.rst` |
+| 이미지 (EXIF/OCR) | `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`, `.tiff` |
+| 오디오 (음성 인식) | `.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac` |
+| 비디오 (자막 추출) | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm` |
+| 코드/기타 | `.py`, `.js`, `.ts`, `.java`, `.c`, `.cpp`, `.ipynb`, `.zip` |
 
 ## 모듈 구성
 
@@ -37,13 +54,15 @@ pip install FlagEmbedding mistune pyarrow pandas pyyaml
 python 01_download_model.py
 ```
 
-### 2. 문서 준비 (선택)
+### 2. 문서 준비
 
-`input_docs/` 디렉터리에 마크다운 파일을 넣고:
+`input_docs/` 디렉터리에 파일을 넣고 (다양한 형식 지원):
 
 ```bash
 python 02_prepare_content.py
 ```
+
+지원되는 모든 형식의 파일이 마크다운으로 변환되고 메타데이터가 추가됩니다.
 
 ### 3. 시맨틱 청킹
 
