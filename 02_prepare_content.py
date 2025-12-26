@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 import yaml
+from langdetect import detect, LangDetectException
 
 
 # 디렉터리 설정
@@ -24,30 +25,14 @@ OUTPUT_DIR = BASE_DIR / "prepared_contents"
 
 
 def detect_language(text: str) -> str:
-    """텍스트 언어 감지 (간단 휴리스틱)"""
-    # 한글 비율 계산
-    korean_chars = len(re.findall(r'[가-힣]', text))
-    total_chars = len(re.findall(r'\w', text))
-    
-    if total_chars == 0:
+    """텍스트 언어 감지 (langdetect 라이브러리 사용)"""
+    if not text or len(text.strip()) < 10:
         return "unknown"
     
-    korean_ratio = korean_chars / total_chars
-    
-    if korean_ratio > 0.3:
-        return "ko"
-    
-    # 일본어 감지
-    japanese_chars = len(re.findall(r'[\u3040-\u309F\u30A0-\u30FF]', text))
-    if japanese_chars / total_chars > 0.1:
-        return "ja"
-    
-    # 중국어 감지 (한글 제외한 한자)
-    chinese_chars = len(re.findall(r'[\u4E00-\u9FFF]', text))
-    if chinese_chars / total_chars > 0.3:
-        return "zh"
-    
-    return "en"
+    try:
+        return detect(text)
+    except LangDetectException:
+        return "unknown"
 
 
 def extract_title(content: str) -> str:
