@@ -9,6 +9,7 @@ dependencies = [
     "huggingface-hub>=0.20.0",
     "langdetect>=1.0.9",
     "markitdown[all]>=0.1.4",
+    "mcp[cli]>=1.25.0",
     "mistune>=3.2.0",
     "onnxruntime-genai>=0.5.0",
     "pandas>=2.3.3",

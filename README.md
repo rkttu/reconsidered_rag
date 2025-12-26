@@ -40,6 +40,7 @@ BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.
 | `02_prepare_content.py` | 메타데이터 추출 및 YAML front matter 생성 |
 | `03_semantic_chunking.py` | 시맨틱 청킹 및 parquet 저장 |
 | `04_build_vector_db.py` | sqlite-vec 벡터 DB 빌드 및 검색 |
+| `05_mcp_server.py` | MCP 서버 (stdio/SSE 모드 지원) |
 
 ## 설치
 
@@ -159,6 +160,53 @@ python 04_build_vector_db.py
 
 벡터 형식: `float32[1024]` (BGE-M3 Dense 벡터)
 
+### 5. MCP 서버 실행
+
+벡터 검색을 MCP 프로토콜로 제공합니다.
+
+#### stdio 모드 (Claude Desktop, Cursor 등)
+
+```bash
+python 05_mcp_server.py
+```
+
+#### SSE 모드 (웹 클라이언트)
+
+```bash
+python 05_mcp_server.py --sse --port 8080
+```
+
+옵션:
+
+- `--db-path`: 벡터 DB 경로 (기본: `vector_db/vectors.db`)
+- `--sse`: SSE 모드로 실행
+- `--host`: SSE 서버 호스트 (기본: `127.0.0.1`)
+- `--port`: SSE 서버 포트 (기본: `8080`)
+
+#### 제공 도구 (Tools)
+
+| 도구 | 설명 |
+| ------ | ------ |
+| `search` | 벡터 유사도 검색 |
+| `get_chunk` | 청크 ID로 상세 조회 |
+| `list_documents` | 문서 목록 조회 |
+| `get_stats` | DB 통계 조회 |
+
+#### Claude Desktop 설정 예시
+
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "aipack-vector-search": {
+      "command": "python",
+      "args": ["D:/Projects/aipack/05_mcp_server.py"]
+    }
+  }
+}
+```
+
 ## 출력 스키마
 
 | 필드 | 타입 | 설명 |
@@ -185,6 +233,7 @@ aipack/
 ├── 02_prepare_content.py      # 메타데이터 추출 + Azure 연동
 ├── 03_semantic_chunking.py    # 시맨틱 청킹
 ├── 04_build_vector_db.py      # 벡터 DB 빌드
+├── 05_mcp_server.py           # MCP 서버 (stdio/SSE)
 ├── input_docs/                # 입력 문서
 ├── prepared_contents/         # 메타데이터 추가된 문서
 ├── chunked_data/              # 청킹된 parquet 파일
