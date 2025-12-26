@@ -39,6 +39,7 @@ BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.
 | `01_download_model.py` | BGE-M3 임베딩 모델 다운로드 |
 | `02_prepare_content.py` | 메타데이터 추출 및 YAML front matter 생성 |
 | `03_semantic_chunking.py` | 시맨틱 청킹 및 parquet 저장 |
+| `04_build_vector_db.py` | sqlite-vec 벡터 DB 빌드 및 검색 |
 
 ## 설치
 
@@ -131,6 +132,33 @@ python 03_semantic_chunking.py
 - `--output-dir`: 출력 디렉터리 (기본: `chunked_data`)
 - `--similarity-threshold`: 유사도 임계값 (기본: 0.5)
 
+### 4. 벡터 DB 빌드
+
+```bash
+python 04_build_vector_db.py
+```
+
+옵션:
+
+- `--input-dir`: 입력 디렉터리 (기본: `chunked_data`)
+- `--output-dir`: 출력 디렉터리 (기본: `vector_db`)
+- `--db-name`: DB 파일명 (기본: `vectors.db`)
+- `--export-parquet`: Milvus/Qdrant 이식용 Parquet 내보내기
+- `--test-search "쿼리"`: 빌드 후 테스트 검색 수행
+
+#### 벡터 DB 이식성
+
+내보내기된 Parquet 파일(`vectors_export.parquet`)은 다음 벡터 DB로 직접 이식 가능:
+
+| 벡터 DB | 이식 방법 |
+| ------ | ------ |
+| **Milvus** | `pymilvus`의 `insert()` 메서드로 직접 import |
+| **Qdrant** | REST API 또는 Python 클라이언트로 upsert |
+| **Pinecone** | `upsert()` 메서드로 직접 import |
+| **Chroma** | `add()` 메서드로 직접 import |
+
+벡터 형식: `float32[1024]` (BGE-M3 Dense 벡터)
+
 ## 출력 스키마
 
 | 필드 | 타입 | 설명 |
@@ -156,9 +184,13 @@ aipack/
 ├── 01_download_model.py       # BGE-M3 모델 다운로드
 ├── 02_prepare_content.py      # 메타데이터 추출 + Azure 연동
 ├── 03_semantic_chunking.py    # 시맨틱 청킹
+├── 04_build_vector_db.py      # 벡터 DB 빌드
 ├── input_docs/                # 입력 문서
 ├── prepared_contents/         # 메타데이터 추가된 문서
 ├── chunked_data/              # 청킹된 parquet 파일
+├── vector_db/                 # sqlite-vec 벡터 DB
+│   ├── vectors.db             # 로컬 벡터 DB
+│   └── vectors_export.parquet # 이식용 내보내기 파일
 ├── .env.example               # 환경 변수 템플릿
 ├── pyproject.toml
 └── README.md
