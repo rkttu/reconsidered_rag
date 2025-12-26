@@ -5,26 +5,109 @@
 특징:
 - Microsoft markitdown을 활용한 다양한 문서 형식 지원
   (Word, Excel, PowerPoint, PDF, HTML, 이미지, 오디오 등)
+- Azure AI 서비스 연동 (Document Intelligence, OpenAI Vision, Speech)
 - 마크다운 구조 분석을 통한 메타데이터 추출
 - 키워드 자동 추출 (헤딩, 볼드, 링크 텍스트 등)
 - 언어 감지 지원
 - YAML front matter 생성
 """
 
+import os
 import re
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 
 import yaml
+from dotenv import load_dotenv
 from langdetect import detect, LangDetectException
 from markitdown import MarkItDown, UnsupportedFormatException
 
+
+# .env 파일 로드
+load_dotenv()
 
 # 디렉터리 설정
 BASE_DIR = Path(__file__).parent
 INPUT_DIR = BASE_DIR / "input_docs"
 OUTPUT_DIR = BASE_DIR / "prepared_contents"
+
+
+# =============================================================================
+# Azure 서비스 설정
+# =============================================================================
+
+def get_azure_document_intelligence_client() -> Optional[Any]:
+    """Azure Document Intelligence 클라이언트 생성"""
+    endpoint = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
+    key = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY")
+    auth_method = os.getenv("AZURE_AUTH_METHOD", "key")
+
+    if not endpoint:
+        return None
+
+    try:
+        from azure.ai.documentintelligence import DocumentIntelligenceClient
+
+        if auth_method == "default":
+            from azure.identity import DefaultAzureCredential
+            credential = DefaultAzureCredential()
+        else:
+            from azure.core.credentials import AzureKeyCredential
+            if not key:
+                print("⚠️ AZURE_DOCUMENT_INTELLIGENCE_KEY가 설정되지 않았습니다.")
+                return None
+            credential = AzureKeyCredential(key)
+
+        return DocumentIntelligenceClient(
+            endpoint=endpoint,
+            credential=credential,
+        )
+    except ImportError:
+        print("⚠️ azure-ai-documentintelligence 패키지가 설치되지 않았습니다.")
+        return None
+    except Exception as e:
+        print(f"⚠️ Document Intelligence 클라이언트 생성 실패: {e}")
+        return None
+
+
+def get_azure_openai_client() -> Optional[Any]:
+    """Azure OpenAI 클라이언트 생성 (GPT-4o Vision)"""
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    key = os.getenv("AZURE_OPENAI_API_KEY")
+
+    if not endpoint or not key:
+        return None
+
+    try:
+        from openai import AzureOpenAI
+
+        return AzureOpenAI(
+            azure_endpoint=endpoint,
+            api_key=key,
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+        )
+    except ImportError:
+        print("⚠️ openai 패키지가 설치되지 않았습니다.")
+        return None
+    except Exception as e:
+        print(f"⚠️ Azure OpenAI 클라이언트 생성 실패: {e}")
+        return None
+
+
+def get_azure_speech_config() -> Optional[tuple[str, str]]:
+    """Azure Speech 설정 반환"""
+    key = os.getenv("AZURE_SPEECH_KEY")
+    region = os.getenv("AZURE_SPEECH_REGION")
+
+    if key and region:
+        return key, region
+    return None
+
+
+# =============================================================================
+# MarkItDown 설정
+# =============================================================================
 
 # MarkItDown 지원 파일 확장자
 SUPPORTED_EXTENSIONS = {
@@ -51,10 +134,39 @@ _markitdown_instance: Optional[MarkItDown] = None
 
 
 def get_markitdown() -> MarkItDown:
-    """MarkItDown 싱글톤 인스턴스 반환"""
+    """
+    MarkItDown 싱글톤 인스턴스 반환
+
+    Azure 서비스가 설정된 경우 자동으로 연동합니다:
+    - Document Intelligence: 스캔 PDF, 이미지 OCR 향상
+    - OpenAI (GPT-4o): 이미지 내용 이해
+    """
     global _markitdown_instance
     if _markitdown_instance is None:
-        _markitdown_instance = MarkItDown()
+        # Azure 클라이언트 생성
+        doc_client = get_azure_document_intelligence_client()
+        llm_client = get_azure_openai_client()
+        llm_model = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+
+        # 연동 상태 출력
+        services = []
+        if doc_client:
+            services.append("Document Intelligence")
+        if llm_client and llm_model:
+            services.append(f"OpenAI ({llm_model})")
+
+        if services:
+            print(f"🔗 Azure 서비스 연동: {', '.join(services)}")
+        else:
+            print("ℹ️ Azure 서비스 미연동 (기본 markitdown 사용)")
+
+        # MarkItDown 인스턴스 생성
+        _markitdown_instance = MarkItDown(
+            document_intelligence_client=doc_client,
+            llm_client=llm_client,
+            llm_model=llm_model,
+        )
+
     return _markitdown_instance
 
 

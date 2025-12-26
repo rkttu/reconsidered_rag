@@ -10,6 +10,10 @@ BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.
   - PDF, HTML, XML, JSON, CSV
   - 이미지 (EXIF/OCR), 오디오 (음성 인식), 비디오 (자막 추출)
   - 코드 파일, Jupyter Notebook, ZIP 아카이브
+- **Azure AI 서비스 연동** (선택사항)
+  - Document Intelligence: 스캔 PDF, 이미지 OCR 향상
+  - Azure OpenAI (GPT-4o): 이미지 내용 이해
+  - 설정된 서비스만 자동 활성화
 - **시맨틱 청킹**: 의미 유사도 기반 청크 분할
 - **마크다운 구조 보존**: 헤딩 레벨, 섹션 경로 등 계층 정보 유지
 - **다국어 지원**: BGE-M3의 100+ 언어 지원
@@ -43,7 +47,58 @@ BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.
 uv sync
 
 # 또는 pip
-pip install FlagEmbedding mistune pyarrow pandas pyyaml
+pip install FlagEmbedding mistune pyarrow pandas pyyaml markitdown[all]
+```
+
+## Azure 서비스 연동 (선택사항)
+
+기본 markitdown만으로도 동작하지만, Azure 서비스를 연동하면 더 나은 결과를 얻을 수 있습니다.
+
+### 지원 서비스
+
+| 서비스 | 용도 | 향상되는 기능 |
+| ------ | ------ | ------ |
+| Document Intelligence | 스캔 PDF, 이미지 OCR | 텍스트 추출 정확도 |
+| Azure OpenAI (GPT-4o) | 이미지 내용 이해 | 이미지 설명 생성 |
+
+### 설정 방법
+
+```bash
+# 1. 환경 파일 생성
+cp .env.example .env
+
+# 2. 필요한 키만 입력 (설정된 서비스만 활성화됨)
+```
+
+`.env` 파일 예시:
+
+```env
+# Document Intelligence (스캔 PDF, 이미지 OCR)
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTELLIGENCE_KEY=your-key
+
+# Azure OpenAI (이미지 내용 이해)
+AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-key
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
+```
+
+### 동작 방식
+
+- **키 없음**: 기본 markitdown만 사용
+- **일부 서비스만 설정**: 해당 서비스만 활성화
+- **모두 설정**: 전체 기능 활성화
+
+실행 시 연동 상태가 표시됩니다:
+
+```text
+🔗 Azure 서비스 연동: Document Intelligence, OpenAI (gpt-4o)
+```
+
+또는:
+
+```text
+ℹ️ Azure 서비스 미연동 (기본 markitdown 사용)
 ```
 
 ## 사용법
@@ -99,11 +154,12 @@ python 03_semantic_chunking.py
 ```text
 aipack/
 ├── 01_download_model.py       # BGE-M3 모델 다운로드
-├── 02_prepare_content.py      # 메타데이터 추출
+├── 02_prepare_content.py      # 메타데이터 추출 + Azure 연동
 ├── 03_semantic_chunking.py    # 시맨틱 청킹
 ├── input_docs/                # 입력 문서
 ├── prepared_contents/         # 메타데이터 추가된 문서
 ├── chunked_data/              # 청킹된 parquet 파일
+├── .env.example               # 환경 변수 템플릿
 ├── pyproject.toml
 └── README.md
 ```
