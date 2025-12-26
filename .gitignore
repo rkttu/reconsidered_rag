@@ -11,6 +11,6 @@ wheels/
 
 # Project Specific
 .env
-models/
+input_docs/
 prepared_contents/
 chunked_data/

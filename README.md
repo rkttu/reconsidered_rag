@@ -14,7 +14,7 @@ BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.
 ## 모듈 구성
 
 | 모듈 | 설명 |
-|------|------|
+| ------ | ------ |
 | `01_download_model.py` | BGE-M3 임베딩 모델 다운로드 |
 | `02_prepare_content.py` | 메타데이터 추출 및 YAML front matter 생성 |
 | `03_semantic_chunking.py` | 시맨틱 청킹 및 parquet 저장 |
@@ -52,6 +52,7 @@ python 03_semantic_chunking.py
 ```
 
 옵션:
+
 - `--input-dir`: 입력 디렉터리 (기본: `prepared_contents`)
 - `--output-dir`: 출력 디렉터리 (기본: `chunked_data`)
 - `--similarity-threshold`: 유사도 임계값 (기본: 0.5)
@@ -59,7 +60,7 @@ python 03_semantic_chunking.py
 ## 출력 스키마
 
 | 필드 | 타입 | 설명 |
-|------|------|------|
+| ------ | ------ | ------ |
 | `chunk_id` | string | 청크 고유 ID |
 | `content_hash` | string | 콘텐츠 해시 (증분 업데이트용) |
 | `chunk_text` | string | 청크 텍스트 |
@@ -105,7 +106,7 @@ aipack/
 ### 출력 parquet 예시
 
 | chunk_id | heading_level | heading_text | section_path |
-|----------|---------------|--------------|--------------|
+| ---------- | --------------- | -------------- | -------------- |
 | abc123 | 1 | 제목 | # 제목 |
 | def456 | 2 | 섹션 1 | # 제목 / ## 섹션 1 |
 | ghi789 | 2 | 섹션 2 | # 제목 / ## 섹션 2 |
