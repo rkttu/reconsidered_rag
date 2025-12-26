@@ -169,6 +169,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "sqlite-vec" },
     { name = "tqdm" },
+    { name = "typer" },
 ]
 
 [package.optional-dependencies]
@@ -195,6 +196,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "tqdm", specifier = ">=4.65.0" },
+    { name = "typer", specifier = ">=0.21.0" },
 ]
 provides-extras = ["dev"]
 
