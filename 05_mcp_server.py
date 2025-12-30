@@ -1,16 +1,16 @@
 """
 05_mcp_server.py
-vector_db의 sqlite-vec 데이터베이스를 활용한 MCP 서버
+MCP server utilizing sqlite-vec database from vector_db
 
-지원 기능:
-- 벡터 유사도 검색 (search)
-- 청크 조회 (get_chunk)
-- 문서 목록 (list_documents)
-- 통계 조회 (get_stats)
+Supported features:
+- Vector similarity search (search)
+- Chunk lookup (get_chunk)
+- Document list (list_documents)
+- Statistics lookup (get_stats)
 
-실행 방법:
-- stdio 모드: python 05_mcp_server.py
-- SSE 모드: python 05_mcp_server.py --sse --port 8080
+Execution methods:
+- stdio mode: python 05_mcp_server.py
+- SSE mode: python 05_mcp_server.py --sse --port 8080
 """
 
 import json
@@ -46,7 +46,7 @@ EMBEDDING_DIM = 1024
 
 
 def get_device_info() -> tuple[str, bool]:
-    """사용 가능한 디바이스 및 FP16 지원 여부 반환"""
+    """Return available device and FP16 support status"""
     if torch.cuda.is_available():
         device_name = torch.cuda.get_device_name(0)
         return device_name, True
@@ -295,7 +295,7 @@ class VectorSearchService:
 # =============================================================================
 
 def create_mcp_server(db_path: Path = DEFAULT_DB_PATH) -> Server:
-    """MCP 서버 생성"""
+    """Create MCP server"""
 
     server = Server("aipack-vector-search")
     search_service = VectorSearchService(db_path)
@@ -330,13 +330,13 @@ def create_mcp_server(db_path: Path = DEFAULT_DB_PATH) -> Server:
             ),
             Tool(
                 name="get_chunk",
-                description="특정 청크 ID로 청크의 전체 내용과 메타데이터를 조회합니다.",
+                description="Look up the full content and metadata of a chunk by specific chunk ID.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "chunk_id": {
                             "type": "string",
-                            "description": "청크 ID",
+                            "description": "Chunk ID",
                         },
                     },
                     "required": ["chunk_id"],

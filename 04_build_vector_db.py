@@ -1,13 +1,13 @@
 """
 04_build_vector_db.py
-chunked_data의 parquet 파일을 읽어 BGE-M3 임베딩을 생성하고
-sqlite-vec 기반 로컬 벡터 데이터베이스로 컴파일하는 모듈
+Module that reads parquet files from chunked_data, generates BGE-M3 embeddings,
+and compiles them into a local vector database based on sqlite-vec
 
-특징:
-- BGE-M3 Dense 벡터 (1024차원) 기반 검색
-- sqlite-vec 확장 활용 (벡터 유사도 검색)
-- 메타데이터와 벡터를 함께 저장
-- Milvus/Qdrant 등으로 이식 가능한 Parquet 내보내기
+Features:
+- BGE-M3 Dense vector (1024-dimension) based search
+- Utilizes sqlite-vec extension (vector similarity search)
+- Stores metadata and vectors together
+- Parquet export portable to Milvus/Qdrant, etc.
 """
 
 import json
@@ -36,7 +36,7 @@ EMBEDDING_DIM = 1024  # BGE-M3 Dense 벡터 차원
 
 
 def get_device_info() -> tuple[str, bool]:
-    """사용 가능한 디바이스 및 FP16 지원 여부 반환"""
+    """Return available device and FP16 support status"""
     if torch.cuda.is_available():
         device_name = torch.cuda.get_device_name(0)
         return device_name, True
@@ -47,7 +47,7 @@ def get_device_info() -> tuple[str, bool]:
 
 
 class VectorDBBuilder:
-    """sqlite-vec 기반 벡터 DB 빌더"""
+    """sqlite-vec based vector DB builder"""
 
     def __init__(self, db_path: Path):
         self.db_path = db_path

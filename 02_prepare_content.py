@@ -1,15 +1,15 @@
 """
 02_prepare_content.py
-입력 문서에서 메타데이터를 추출하고 YAML front matter를 추가하는 모듈
+Module for extracting metadata from input documents and adding YAML front matter
 
-특징:
-- Microsoft markitdown을 활용한 다양한 문서 형식 지원
-  (Word, Excel, PowerPoint, PDF, HTML, 이미지, 오디오 등)
-- Azure AI 서비스 연동 (Document Intelligence, OpenAI Vision, Speech)
-- 마크다운 구조 분석을 통한 메타데이터 추출
-- 키워드 자동 추출 (헤딩, 볼드, 링크 텍스트 등)
-- 언어 감지 지원
-- YAML front matter 생성
+Features:
+- Support for various document formats using Microsoft markitdown
+  (Word, Excel, PowerPoint, PDF, HTML, images, audio, etc.)
+- Azure AI service integration (Document Intelligence, OpenAI Vision, Speech)
+- Metadata extraction through markdown structure analysis
+- Automatic keyword extraction (headings, bold, link texts, etc.)
+- Language detection support
+- YAML front matter generation
 """
 
 import os
@@ -38,7 +38,7 @@ OUTPUT_DIR = BASE_DIR / "prepared_contents"
 # =============================================================================
 
 def get_azure_document_intelligence_client() -> Optional[Any]:
-    """Azure Document Intelligence 클라이언트 생성"""
+    """Create Azure Document Intelligence client"""
     endpoint = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")
     key = os.getenv("AZURE_DOCUMENT_INTELLIGENCE_KEY")
     auth_method = os.getenv("AZURE_AUTH_METHOD", "key")
@@ -55,7 +55,7 @@ def get_azure_document_intelligence_client() -> Optional[Any]:
         else:
             from azure.core.credentials import AzureKeyCredential
             if not key:
-                print("⚠️ AZURE_DOCUMENT_INTELLIGENCE_KEY가 설정되지 않았습니다.")
+                print("⚠️ AZURE_DOCUMENT_INTELLIGENCE_KEY is not set.")
                 return None
             credential = AzureKeyCredential(key)
 
@@ -64,15 +64,15 @@ def get_azure_document_intelligence_client() -> Optional[Any]:
             credential=credential,
         )
     except ImportError:
-        print("⚠️ azure-ai-documentintelligence 패키지가 설치되지 않았습니다.")
+        print("⚠️ azure-ai-documentintelligence package is not installed.")
         return None
     except Exception as e:
-        print(f"⚠️ Document Intelligence 클라이언트 생성 실패: {e}")
+        print(f"⚠️ Failed to create Document Intelligence client: {e}")
         return None
 
 
 def get_azure_openai_client() -> Optional[Any]:
-    """Azure OpenAI 클라이언트 생성 (GPT-4o Vision)"""
+    """Create Azure OpenAI client (GPT-4o Vision)"""
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     key = os.getenv("AZURE_OPENAI_API_KEY")
 
@@ -88,10 +88,10 @@ def get_azure_openai_client() -> Optional[Any]:
             api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
         )
     except ImportError:
-        print("⚠️ openai 패키지가 설치되지 않았습니다.")
+        print("⚠️ openai package is not installed.")
         return None
     except Exception as e:
-        print(f"⚠️ Azure OpenAI 클라이언트 생성 실패: {e}")
+        print(f"⚠️ Failed to create Azure OpenAI client: {e}")
         return None
 
 

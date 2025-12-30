@@ -4,46 +4,46 @@
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
 
-BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.  
-다양한 형식의 문서를 마크다운으로 변환하고, 의미 기반으로 분할하며, 헤딩 계층 구조를 보존합니다.
+A semantic chunking tool using the BGE-M3 embedding model.  
+Converts documents of various formats to Markdown, splits them based on semantic meaning, and preserves heading hierarchy.
 
-## 프로젝트 컨셉
+## Project Concept
 
-> 다양한 RAG 확장을 위한 베이스캠프 + 간단한 미리보기
+> Basecamp for various RAG extensions + Simple preview
 
-aipack은 벡터 RAG의 기반을 제공하면서, 그래프 RAG, 하이브리드 RAG 등 다양한 확장으로 나아갈 수 있는 출발점입니다:
+aipack provides a foundation for vector RAG while serving as a starting point for extensions like graph RAG and hybrid RAG:
 
-- **베이스캠프 역할**: parquet 파일이 "확장 허브"로 작동하여 Milvus, Qdrant, Memgraph 등 다양한 백엔드로 이식 가능
-- **미리보기 역할**: MCP 서버를 통해 실제 RAG 애플리케이션 구축 전 테스트/프로토타이핑 가능
-- **데이터베이스 중립성**: 특정 벡터 DB에 종속되지 않고 parquet 기반으로 유연하게 확장
-- **증분 업데이트**: 임베딩 모델이나 원본 콘텐츠 변경에도 유연하게 대응
+- **Basecamp Role**: Parquet files act as "extension hubs" for easy migration to various backends like Milvus, Qdrant, Memgraph
+- **Preview Role**: MCP server enables testing/prototyping before building full RAG applications
+- **Database Neutrality**: Not tied to specific vector DBs, flexible expansion based on parquet
+- **Incremental Updates**: Flexible response to changes in embedding models or source content
 
-## 아키텍처
+## Architecture
 
 ```mermaid
 flowchart TD
     subgraph "Input"
-        A[input_docs/<br/>다양한 형식의 문서]
+        A[input_docs/<br/>Various format documents]
     end
     
     subgraph "Preprocessing"
-        B[02_prepare_content.py<br/>메타데이터 추출<br/>마크다운 변환]
+        B[02_prepare_content.py<br/>Metadata extraction<br/>Markdown conversion]
     end
     
     subgraph "Chunking"
-        C[03_semantic_chunking.py<br/>시맨틱 청킹<br/>임베딩 생성]
+        C[03_semantic_chunking.py<br/>Semantic chunking<br/>Embedding generation]
     end
     
     subgraph "Storage"
-        D[chunked_data/<br/>parquet 파일]
+        D[chunked_data/<br/>parquet files]
     end
     
     subgraph "Vector DB"
-        E[04_build_vector_db.py<br/>sqlite-vec 빌드]
+        E[04_build_vector_db.py<br/>sqlite-vec build]
     end
     
     subgraph "Serving"
-        F[05_mcp_server.py<br/>MCP 서버<br/>벡터 검색 + 리랭킹]
+        F[05_mcp_server.py<br/>MCP server<br/>Vector search + reranking]
     end
     
     A --> B
@@ -60,38 +60,374 @@ flowchart TD
     style F fill:#e0f2f1
 ```
 
-각 단계의 중간 결과가 parquet으로 저장되어, 다양한 실험과 외부 시스템 이식이 용이합니다.
+Intermediate results from each step are saved as parquet files, making various experiments and external system migrations easy.
 
-## 특징
+## Features
 
-- **다양한 문서 형식 지원**: Microsoft markitdown 활용
-  - 오피스 문서: Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
+- **Support for Various Document Formats**: Using Microsoft markitdown
+  - Office documents: Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
   - PDF, HTML, XML, JSON, CSV
-  - 이미지 (EXIF/OCR), 오디오 (음성 인식), 비디오 (자막 추출)
-  - 코드 파일, Jupyter Notebook, ZIP 아카이브
-- **Azure AI 서비스 연동** (선택사항)
-  - Document Intelligence: 스캔 PDF, 이미지 OCR 향상
-  - Azure OpenAI (GPT-4o): 이미지 내용 이해
-  - 설정된 서비스만 자동 활성화
-- **시맨틱 청킹**: 의미 유사도 기반 청크 분할
-- **마크다운 구조 보존**: 헤딩 레벨, 섹션 경로 등 계층 정보 유지
-- **다국어 지원**: BGE-M3의 100+ 언어 지원
-- **증분 업데이트**: 콘텐츠 해시 기반 변경 감지
-- **zstd 압축**: 효율적인 parquet 저장
-- **BGE 리랭커**: 검색 결과 정확도 향상을 위한 리랭킹 지원
-- **CPU 친화적**: GPU 없이도 동작 가능 (GPU 있으면 자동 활용)
+  - Images (EXIF/OCR), Audio (speech recognition), Video (subtitle extraction)
+  - Code files, Jupyter Notebook, ZIP archives
+- **Microsoft Foundry Service Integration** (Optional)
+  - Document Intelligence: Enhanced OCR for scanned PDFs and images
+  - Azure OpenAI (GPT-4o): Image content understanding
+  - Only configured services are automatically activated
+- **Semantic Chunking**: Chunk splitting based on semantic similarity
+- **Markdown Structure Preservation**: Maintains hierarchical information like heading levels and section paths
+- **Multilingual Support**: BGE-M3's support for 100+ languages
+- **Incremental Updates**: Change detection based on content hash
+- **zstd Compression**: Efficient parquet storage
+- **BGE Reranker**: Reranking support for improved search result accuracy
+- **CPU-Friendly**: Works without GPU (automatically uses GPU if available)
 
-## 지원 파일 형식
+## Supported File Formats
 
-| 카테고리 | 확장자 |
-| ------ | ------ |
-| 오피스 문서 | `.docx`, `.doc`, `.xlsx`, `.xls`, `.pptx`, `.ppt` |
-| PDF/웹 | `.pdf`, `.html`, `.htm`, `.xml`, `.json`, `.csv` |
-| 마크다운/텍스트 | `.md`, `.markdown`, `.txt`, `.rst` |
-| 이미지 (EXIF/OCR) | `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`, `.tiff` |
-| 오디오 (음성 인식) | `.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac` |
-| 비디오 (자막 추출) | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm` |
-| 코드/기타 | `.py`, `.js`, `.ts`, `.java`, `.c`, `.cpp`, `.ipynb`, `.zip` |
+| Category | Extensions |
+| -------- | ---------- |
+| Office Documents | `.docx`, `.doc`, `.xlsx`, `.xls`, `.pptx`, `.ppt` |
+| PDF/Web | `.pdf`, `.html`, `.htm`, `.xml`, `.json`, `.csv` |
+| Markdown/Text | `.md`, `.markdown`, `.txt`, `.rst` |
+| Images (EXIF/OCR) | `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`, `.tiff` |
+| Audio (Speech Recognition) | `.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac` |
+| Video (Subtitle Extraction) | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm` |
+| Code/Other | `.py`, `.js`, `.ts`, `.java`, `.c`, `.cpp`, `.ipynb`, `.zip` |
+
+## Module Structure
+
+| Module | Description |
+| ------ | ----------- |
+| `01_download_model.py` | BGE-M3 embedding model and reranker model download |
+| `02_prepare_content.py` | Metadata extraction and YAML front matter generation |
+| `03_semantic_chunking.py` | Semantic chunking and parquet storage |
+| `04_build_vector_db.py` | sqlite-vec vector DB build and search |
+| `05_mcp_server.py` | MCP server (stdio/SSE mode support) |
+
+## Installation
+
+### Installing uv
+
+uv is a fast Python package manager. Install it from the official repository:
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**Linux/macOS:**
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Or install via pip:
+
+```bash
+pip install uv
+```
+
+For more installation options, visit: <https://github.com/astral-sh/uv>.
+
+### Installing Dependencies
+
+```bash
+# Using uv (recommended)
+uv sync
+
+# Or using pip
+pip install FlagEmbedding mistune pyarrow pandas pyyaml markitdown[all]
+```
+
+> **Note**: The `huggingface-hub[hf_xet]` package is included to improve download speeds for Xet Storage-supported models.
+
+## Containerization
+
+The program can be containerized using Docker. Model files are mounted as host volumes for caching.
+
+### Build and Run
+
+```bash
+# Build image
+docker-compose build
+
+# Run (automatic model download → data processing → server start)
+docker-compose up
+
+# Or stdio mode
+docker-compose run --rm aipack ./entrypoint.sh
+
+# Specify port
+PORT=9090 docker-compose up
+```
+
+### Execution Flow
+
+The container automatically performs the following steps on startup:
+
+1. **Model Download**: Check cache and download BGE-M3 and reranker models
+2. **Data Processing**: If `input_docs/` exists, prepare documents → chunking → vector DB build
+3. **Server Start**: Run MCP server (SSE mode by default)
+
+> **Note**: Works even in environments without uv or Python runtime (multi-stage build)
+
+### Volume Mounts
+
+- **Model Cache**: `./cache/huggingface` → `/root/.cache/huggingface` in container
+  - Stores large files like BGE-M3 and reranker models in project's `cache/` directory
+  - Explicit `cache_dir` setting in code controls cache location
+  - Cache reuse on container restart saves download time
+- **Data Directories**: `input_docs`, `prepared_contents`, `chunked_data`, `vector_db`
+  - Data sharing between host and container
+
+### Environment Variables
+
+- `PYTHONUNBUFFERED=1`: Immediate log output
+
+## Microsoft Foundry Service Integration (Optional)
+
+Works with basic markitdown alone, but better results can be achieved by integrating Microsoft Foundry services.
+
+### Supported Services
+
+| Service | Purpose | Enhanced Features |
+| ------- | ------- | ----------------- |
+| Document Intelligence | Scanned PDF, image OCR | Text extraction accuracy |
+| Azure OpenAI (GPT-4o) | Image content understanding | Image description generation |
+
+### Configuration
+
+```bash
+# 1. Create environment file
+cp .env.example .env
+
+# 2. Enter only necessary keys (only configured services are activated)
+```
+
+Example `.env` file:
+
+```env
+# Document Intelligence (scanned PDF, image OCR)
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
+AZURE_DOCUMENT_INTELLIGENCE_KEY=your-key
+
+# Azure OpenAI (image content understanding)
+AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-key
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
+```
+
+### Operation
+
+- **No Keys**: Uses basic markitdown only
+- **Some Services Configured**: Only those services are activated
+- **All Configured**: Full functionality activated
+
+Integration status is displayed during execution:
+
+```text
+🔗 Azure services integrated: Document Intelligence, OpenAI (gpt-4o)
+```
+
+Or:
+
+```text
+ℹ️ Azure services not integrated (using basic markitdown)
+```
+
+## Usage
+
+### 1. Model Download (One-time)
+
+```bash
+python 01_download_model.py
+```
+
+### 2. Document Preparation
+
+Place files in `input_docs/` directory (various formats supported):
+
+```bash
+python 02_prepare_content.py
+```
+
+All supported file formats are converted to Markdown with metadata added.
+
+### 3. Semantic Chunking
+
+```bash
+python 03_semantic_chunking.py
+```
+
+Options:
+
+- `--input-dir`: Input directory (default: `prepared_contents`)
+- `--output-dir`: Output directory (default: `chunked_data`)
+- `--similarity-threshold`: Similarity threshold (default: 0.5)
+
+### 4. Vector DB Build
+
+```bash
+python 04_build_vector_db.py
+```
+
+Options:
+
+- `--input-dir`: Input directory (default: `chunked_data`)
+- `--output-dir`: Output directory (default: `vector_db`)
+- `--db-name`: DB filename (default: `vectors.db`)
+- `--export-parquet`: Export parquet for Milvus/Qdrant migration
+- `--test-search "query"`: Perform test search after build
+
+#### Vector DB Portability
+
+Exported parquet files (`vectors_export.parquet`) can be directly imported to the following vector DBs:
+
+| Vector DB | Import Method |
+| --------- | ------------- |
+| **Milvus** | Direct import using `pymilvus`'s `insert()` method |
+| **Qdrant** | Upsert via REST API or Python client |
+| **Pinecone** | Direct import using `upsert()` method |
+| **Chroma** | Direct import using `add()` method |
+
+Vector format: `float32[1024]` (BGE-M3 Dense vectors)
+
+### 5. MCP Server Execution
+
+Provides vector search via MCP protocol.
+
+#### stdio Mode (Claude Desktop, Cursor, etc.)
+
+```bash
+python 05_mcp_server.py
+```
+
+#### SSE Mode (Web clients)
+
+```bash
+python 05_mcp_server.py --sse --port 8080
+```
+
+Options:
+
+- `--db-path`: Vector DB path (default: `vector_db/vectors.db`)
+- `--sse`: Run in SSE mode
+- `--host`: SSE server host (default: `127.0.0.1`)
+- `--port`: SSE server port (default: `8080`)
+
+#### Available Tools
+
+| Tool | Description |
+| ---- | ----------- |
+| `search` | Vector similarity search + reranking |
+| `get_chunk` | Detailed lookup by chunk ID |
+| `list_documents` | Document list lookup |
+| `get_stats` | DB statistics lookup |
+
+#### Claude Desktop Configuration Example
+
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "aipack-vector-search": {
+      "command": "python",
+      "args": ["D:/Projects/aipack/05_mcp_server.py"]
+    }
+  }
+}
+```
+
+## Output Schema
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `chunk_id` | string | Unique chunk ID |
+| `content_hash` | string | Content hash (for incremental updates) |
+| `chunk_text` | string | Chunk text |
+| `chunk_type` | string | Type (header, paragraph, list, code, table) |
+| `heading_level` | int32 | Heading level (0=normal, 1-6=H1-H6) |
+| `heading_text` | string | Current heading text |
+| `parent_heading` | string | Parent heading text |
+| `section_path` | list[string] | Section hierarchy path array |
+| `table_headers` | list[string] | Table column headers (if table) |
+| `table_row_count` | int32 | Table data row count (if table) |
+| `domain` | string | Domain (metadata) |
+| `keywords` | string | Keywords JSON (metadata) |
+| `version` | int32 | Version number |
+
+## Directory Structure
+
+```text
+aipack/
+├── 01_download_model.py       # BGE-M3 model download
+├── 02_prepare_content.py      # Metadata extraction + Azure integration
+├── 03_semantic_chunking.py    # Semantic chunking
+├── 04_build_vector_db.py      # Vector DB build
+├── 05_mcp_server.py           # MCP server (stdio/SSE)
+├── input_docs/                # Input documents
+├── prepared_contents/         # Documents with metadata added
+├── chunked_data/              # Chunked parquet files
+├── vector_db/                 # sqlite-vec vector DB
+│   ├── vectors.db             # Local vector DB
+│   └── vectors_export.parquet # Export file for migration
+├── .env.example               # Environment variable template
+├── pyproject.toml
+└── README.md
+```
+
+## Examples
+
+### Input Markdown
+
+```markdown
+# Title
+
+## Section 1
+Content...
+
+## Section 2
+Other content...
+```
+
+### Output Parquet Example
+
+| chunk_id | heading_level | heading_text | section_path |
+| -------- | ------------- | ------------ | ------------ |
+| abc123 | 1 | Title | # Title |
+| def456 | 2 | Section 1 | # Title / ## Section 1 |
+| ghi789 | 2 | Section 2 | # Title / ## Section 2 |
+
+## System Requirements
+
+- Python 3.11+
+- ~5GB disk space (for BGE-M3 + reranker models)
+- 8GB+ RAM recommended
+- GPU (optional): Automatically utilized if CUDA-compatible GPU available
+
+## Future Extension Possibilities
+
+The current system is designed with the following extensions in mind:
+
+| Extension Direction | Description | Current Status |
+| ------------------- | ----------- | -------------- |
+| **Graph RAG** | Ontology-based entity/relation extraction → Node/edge parquet generation | Design completed |
+| **Hybrid Search** | Combination of keyword + vector + graph search | Vector + reranking implemented |
+| **Homonym Handling** | Context distinction via domain-specific ontology mapping | Metadata-based |
+| **Multiple Vector DBs** | Migration to Milvus, Qdrant, Pinecone, etc. | Parquet export supported |
+
+## Contributing
+
+1. Fork this repository.
+2. Create a new branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Create a Pull Request.
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE.md).
 
 ## 모듈 구성
 

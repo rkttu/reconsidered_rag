@@ -1,12 +1,12 @@
 """
 03_semantic_chunking.py
-prepared_contents의 마크다운 파일을 BGE-M3 임베딩 모델을 사용하여
-시맨틱 청킹으로 분할하고 parquet 파일로 저장하는 모듈
+Module that splits markdown files from prepared_contents using BGE-M3 embedding model
+for semantic chunking and saves as parquet files
 
-특징:
-- Markdown 구조 파싱 (heading hierarchy 보존)
-- BGE-M3 임베딩 기반 시맨틱 유사도 청킹
-- zstd 압축 및 증분 업데이트 지원
+Features:
+- Markdown structure parsing (preserves heading hierarchy)
+- BGE-M3 embedding-based semantic similarity chunking
+- zstd compression and incremental update support
 """
 
 import re
@@ -29,10 +29,10 @@ from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
 
 def get_device_info() -> tuple[str, bool]:
     """
-    사용 가능한 디바이스 및 FP16 지원 여부 반환
+    Return available device and FP16 support status
 
     Returns:
-        (device_name, use_fp16) 튜플
+        (device_name, use_fp16) tuple
     """
     if torch.cuda.is_available():
         device_name = torch.cuda.get_device_name(0)

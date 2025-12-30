@@ -53,7 +53,7 @@ def download_model():
 
 @app.command()
 def prepare_content():
-    """입력 문서에서 메타데이터 추출 및 YAML front matter 추가"""
+    """Extract metadata from input documents and add YAML front matter"""
     mod = _load_module_from_file("02_prepare_content.py")
     if hasattr(mod, "main"):
         raise SystemExit(_call_main(mod))
@@ -62,7 +62,7 @@ def prepare_content():
 
 @app.command()
 def semantic_chunking():
-    """prepared_contents의 마크다운 파일을 시맨틱 청킹 및 parquet 저장"""
+    """Perform semantic chunking on markdown files from prepared_contents and save as parquet"""
     mod = _load_module_from_file("03_semantic_chunking.py")
     if hasattr(mod, "main"):
         raise SystemExit(_call_main(mod))
