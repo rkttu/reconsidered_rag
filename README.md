@@ -427,7 +427,7 @@ The current system is designed with the following extensions in mind:
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE.md).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 ## 모듈 구성
 
