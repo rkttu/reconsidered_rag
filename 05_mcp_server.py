@@ -62,6 +62,7 @@ class VectorSearchService:
         self.db_path = db_path
         self.conn: Optional[sqlite3.Connection] = None
         self.model: Optional[Any] = None
+        self.reranker: Optional[Any] = None
         self._initialized = False
 
     def initialize(self) -> None:
@@ -83,6 +84,11 @@ class VectorSearchService:
         print(f"[*] BGE-M3 모델 로딩 중... ({device_name})")
         self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16)
         print("[OK] 모델 로딩 완료")
+
+        # 리랭커 모델 로드 (CPU 전용)
+        print("[*] BGE 리랭커 모델 로딩 중... (CPU)")
+        self.reranker = BGEM3FlagModel("BAAI/bge-reranker-large", use_fp16=False)
+        print("[OK] 리랭커 모델 로딩 완료")
 
         self._initialized = True
 
@@ -153,6 +159,15 @@ class VectorSearchService:
 
             if len(output) >= top_k:
                 break
+
+        # 리랭킹 적용 (BGE 리랭커 사용)
+        if output and self.reranker is not None:
+            candidate_texts = [item["chunk_text"] for item in output]
+            scores = self.reranker.compute_score([[query, text] for text in candidate_texts])
+            for i, item in enumerate(output):
+                item["rerank_score"] = float(scores[i])
+            # 리랭킹 점수로 재정렬 (높은 점수가 더 관련성 높음)
+            output.sort(key=lambda x: x["rerank_score"], reverse=True)
 
         return output
 
