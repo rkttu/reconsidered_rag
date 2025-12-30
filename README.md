@@ -1,7 +1,66 @@
 # AI Pack - Semantic Chunking with BGE-M3
 
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
+
 BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.  
 다양한 형식의 문서를 마크다운으로 변환하고, 의미 기반으로 분할하며, 헤딩 계층 구조를 보존합니다.
+
+## 프로젝트 컨셉
+
+> 다양한 RAG 확장을 위한 베이스캠프 + 간단한 미리보기
+
+aipack은 벡터 RAG의 기반을 제공하면서, 그래프 RAG, 하이브리드 RAG 등 다양한 확장으로 나아갈 수 있는 출발점입니다:
+
+- **베이스캠프 역할**: parquet 파일이 "확장 허브"로 작동하여 Milvus, Qdrant, Memgraph 등 다양한 백엔드로 이식 가능
+- **미리보기 역할**: MCP 서버를 통해 실제 RAG 애플리케이션 구축 전 테스트/프로토타이핑 가능
+- **데이터베이스 중립성**: 특정 벡터 DB에 종속되지 않고 parquet 기반으로 유연하게 확장
+- **증분 업데이트**: 임베딩 모델이나 원본 콘텐츠 변경에도 유연하게 대응
+
+## 아키텍처
+
+```mermaid
+flowchart TD
+    subgraph "Input"
+        A[input_docs/<br/>다양한 형식의 문서]
+    end
+    
+    subgraph "Preprocessing"
+        B[02_prepare_content.py<br/>메타데이터 추출<br/>마크다운 변환]
+    end
+    
+    subgraph "Chunking"
+        C[03_semantic_chunking.py<br/>시맨틱 청킹<br/>임베딩 생성]
+    end
+    
+    subgraph "Storage"
+        D[chunked_data/<br/>parquet 파일]
+    end
+    
+    subgraph "Vector DB"
+        E[04_build_vector_db.py<br/>sqlite-vec 빌드]
+    end
+    
+    subgraph "Serving"
+        F[05_mcp_server.py<br/>MCP 서버<br/>벡터 검색 + 리랭킹]
+    end
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#e8f5e8
+    style D fill:#fff3e0
+    style E fill:#fce4ec
+    style F fill:#e0f2f1
+```
+
+각 단계의 중간 결과가 parquet으로 저장되어, 다양한 실험과 외부 시스템 이식이 용이합니다.
 
 ## 특징
 
@@ -19,6 +78,8 @@ BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.
 - **다국어 지원**: BGE-M3의 100+ 언어 지원
 - **증분 업데이트**: 콘텐츠 해시 기반 변경 감지
 - **zstd 압축**: 효율적인 parquet 저장
+- **BGE 리랭커**: 검색 결과 정확도 향상을 위한 리랭킹 지원
+- **CPU 친화적**: GPU 없이도 동작 가능 (GPU 있으면 자동 활용)
 
 ## 지원 파일 형식
 
@@ -36,7 +97,7 @@ BGE-M3 임베딩 모델을 활용한 시맨틱 청킹 도구입니다.
 
 | 모듈 | 설명 |
 | ------ | ------ |
-| `01_download_model.py` | BGE-M3 임베딩 모델 다운로드 |
+| `01_download_model.py` | BGE-M3 임베딩 모델 및 리랭커 모델 다운로드 |
 | `02_prepare_content.py` | 메타데이터 추출 및 YAML front matter 생성 |
 | `03_semantic_chunking.py` | 시맨틱 청킹 및 parquet 저장 |
 | `04_build_vector_db.py` | sqlite-vec 벡터 DB 빌드 및 검색 |
@@ -96,11 +157,10 @@ PORT=9090 docker-compose up
 ### 환경 변수
 
 - `PYTHONUNBUFFERED=1`: 로그 출력 즉시 표시
-```
 
-## Azure 서비스 연동 (선택사항)
+## Microsoft Foundry 서비스 연동 (선택사항)
 
-기본 markitdown만으로도 동작하지만, Azure 서비스를 연동하면 더 나은 결과를 얻을 수 있습니다.
+기본 markitdown만으로도 동작하지만, Microsoft Foundry 서비스를 연동하면 더 나은 결과를 얻을 수 있습니다.
 
 ### 지원 서비스
 
@@ -233,7 +293,7 @@ python 05_mcp_server.py --sse --port 8080
 
 | 도구 | 설명 |
 | ------ | ------ |
-| `search` | 벡터 유사도 검색 |
+| `search` | 벡터 유사도 검색 + 리랭킹 |
 | `get_chunk` | 청크 ID로 상세 조회 |
 | `list_documents` | 문서 목록 조회 |
 | `get_stats` | DB 통계 조회 |
@@ -316,9 +376,29 @@ aipack/
 ## 시스템 요구사항
 
 - Python 3.11 이상
-- 약 3GB 디스크 공간 (BGE-M3 모델용)
+- 약 5GB 디스크 공간 (BGE-M3 + 리랭커 모델용)
 - 8GB 이상 RAM 권장
+- GPU (선택사항): CUDA 지원 GPU가 있으면 자동으로 활용
+
+## 향후 확장 가능성
+
+현재 시스템은 다음과 같은 확장을 염두에 두고 설계되었습니다:
+
+| 확장 방향 | 설명 | 현재 상태 |
+| -------- | ---- | -------- |
+| **그래프 RAG** | 온톨로지 기반 엔티티/관계 추출 → 노드/엣지 parquet 생성 | 설계 완료 |
+| **하이브리드 검색** | 키워드 + 벡터 + 그래프 검색 결합 | 벡터+리랭킹 구현 |
+| **동음이의어 대비** | 도메인별 온톨로지 매핑으로 맥락 구분 | 메타데이터 기반 |
+| **다중 벡터 DB** | Milvus, Qdrant, Pinecone 등으로 이식 | parquet export 지원 |
+
+## 기여 방법
+
+1. 이 저장소를 포크합니다.
+2. 새 브랜치를 생성합니다: `git checkout -b feature/amazing-feature`
+3. 변경 사항을 커밋합니다: `git commit -m 'Add amazing feature'`
+4. 브랜치에 푸시합니다: `git push origin feature/amazing-feature`
+5. Pull Request를 생성합니다.
 
 ## 라이선스
 
-MIT License
+이 프로젝트는 [Apache License 2.0](LICENSE.md) 하에 라이선스됩니다.
