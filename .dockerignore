@@ -1,0 +1,40 @@
+# .dockerignore for aipack
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+
+# Data directories (호스트 볼륨으로 마운트하므로 제외)
+input_docs/
+prepared_contents/
+chunked_data/
+vector_db/
+cache/  # 모델 캐시 디렉터리
+
+# Models (호스트 캐시로 마운트하므로 제외)
+# Hugging Face cache is mounted via volume

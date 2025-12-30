@@ -38,6 +38,7 @@ from mcp.types import (
 # 디렉터리 설정
 BASE_DIR = Path(__file__).parent
 VECTOR_DB_DIR = BASE_DIR / "vector_db"
+CACHE_DIR = BASE_DIR / "cache" / "huggingface"
 DEFAULT_DB_PATH = VECTOR_DB_DIR / "vectors.db"
 
 # BGE-M3 설정
@@ -82,12 +83,12 @@ class VectorSearchService:
         # 모델 로드
         device_name, use_fp16 = get_device_info()
         print(f"[*] BGE-M3 모델 로딩 중... ({device_name})")
-        self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16)
+        self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16, cache_dir=str(CACHE_DIR))
         print("[OK] 모델 로딩 완료")
 
         # 리랭커 모델 로드 (CPU 전용)
         print("[*] BGE 리랭커 모델 로딩 중... (CPU)")
-        self.reranker = BGEM3FlagModel("BAAI/bge-reranker-large", use_fp16=False)
+        self.reranker = BGEM3FlagModel("BAAI/bge-reranker-large", use_fp16=False, cache_dir=str(CACHE_DIR))
         print("[OK] 리랭커 모델 로딩 완료")
 
         self._initialized = True

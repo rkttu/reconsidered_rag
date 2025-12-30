@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  aipack:
+    build: .
+    ports:
+      - "${PORT:-8080}:8080"  # SSE 모드용
+    volumes:
+      - ./cache/huggingface:/app/cache/huggingface  # 모델 캐시 마운트 (프로젝트 내 cache/ 디렉터리)
+      - ./input_docs:/app/input_docs  # 입력 문서
+      - ./prepared_contents:/app/prepared_contents  # 준비된 콘텐츠
+      - ./chunked_data:/app/chunked_data  # 청킹 데이터
+      - ./vector_db:/app/vector_db  # 벡터 DB
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PORT=${PORT:-8080}
+    entrypoint: ["./entrypoint.sh"]
+    command: ["sse"]  # 기본 SSE 모드

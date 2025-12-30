@@ -52,6 +52,52 @@ uv sync
 pip install FlagEmbedding mistune pyarrow pandas pyyaml markitdown[all]
 ```
 
+> **참고**: `huggingface-hub[hf_xet]` 패키지가 포함되어 있어, Xet Storage 지원 모델의 다운로드 속도가 향상됩니다.
+
+## 컨테이너화
+
+Docker를 사용하여 프로그램을 컨테이너화할 수 있습니다. 모델 파일은 호스트 볼륨으로 마운트하여 캐시합니다.
+
+### 빌드 및 실행
+
+```bash
+# 이미지 빌드
+docker-compose build
+
+# 실행 (자동으로 모델 다운로드 → 데이터 처리 → 서버 시작)
+docker-compose up
+
+# 또는 stdio 모드
+docker-compose run --rm aipack ./entrypoint.sh
+
+# 포트 지정
+PORT=9090 docker-compose up
+```
+
+### 실행 흐름
+
+컨테이너 시작 시 자동으로 다음 단계를 수행합니다:
+
+1. **모델 다운로드**: 캐시 확인 후 BGE-M3 및 리랭커 모델 다운로드
+2. **데이터 처리**: `input_docs/` 존재 시 문서 준비 → 청킹 → 벡터 DB 빌드
+3. **서버 시작**: MCP 서버 실행 (SSE 모드 기본)
+
+> **참고**: uv나 Python 런타임이 없는 환경에서도 실행 가능 (멀티스테이지 빌드)
+
+### 볼륨 마운트
+
+- **모델 캐시**: `./cache/huggingface` → 컨테이너 내 `/root/.cache/huggingface`
+  - BGE-M3, 리랭커 모델 등 대용량 파일을 프로젝트 내 `cache/` 디렉터리에 저장
+  - 코드에서 명시적으로 `cache_dir` 설정하여 캐시 위치 제어
+  - 컨테이너 재시작 시 캐시 재사용, 다운로드 시간 절약
+- **데이터 디렉터리**: `input_docs`, `prepared_contents`, `chunked_data`, `vector_db`
+  - 호스트와 컨테이너 간 데이터 공유
+
+### 환경 변수
+
+- `PYTHONUNBUFFERED=1`: 로그 출력 즉시 표시
+```
+
 ## Azure 서비스 연동 (선택사항)
 
 기본 markitdown만으로도 동작하지만, Azure 서비스를 연동하면 더 나은 결과를 얻을 수 있습니다.

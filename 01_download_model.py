@@ -16,6 +16,9 @@ from typing import Any
 from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
 
 
+# 캐시 디렉터리 설정
+CACHE_DIR = Path(__file__).parent / "cache" / "huggingface"
+
 # 모델 설정
 MODEL_NAME = "BAAI/bge-m3"
 RERANKER_MODEL_NAME = "BAAI/bge-reranker-large"
@@ -37,7 +40,7 @@ def download_model() -> bool:
     
     try:
         # BGE-M3 모델 로드 (자동으로 다운로드됨)
-        model: Any = BGEM3FlagModel(MODEL_NAME, use_fp16=True)
+        model: Any = BGEM3FlagModel(MODEL_NAME, use_fp16=True, cache_dir=str(CACHE_DIR))
         
         print()
         print("✅ BGE-M3 모델 다운로드 완료!")
@@ -63,7 +66,7 @@ def download_model() -> bool:
         print("(처음 실행 시 약 1.1GB 다운로드)")
         print()
         
-        reranker: Any = BGEM3FlagModel(RERANKER_MODEL_NAME, use_fp16=False)  # CPU 모드
+        reranker: Any = BGEM3FlagModel(RERANKER_MODEL_NAME, use_fp16=False, cache_dir=str(CACHE_DIR))  # CPU 모드
         
         print()
         print("✅ BGE 리랭커 모델 다운로드 완료!")

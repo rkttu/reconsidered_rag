@@ -15,3 +15,7 @@ input_docs/
 prepared_contents/
 chunked_data/
 vector_db/
+cache/
+
+# But keep .gitkeep files to maintain empty directories
+!.gitkeep
