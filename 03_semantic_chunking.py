@@ -26,6 +26,10 @@ import mistune
 import torch
 from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
 
+# Suppress transformers tokenizer warnings
+import logging
+logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
+
 
 def get_device_info() -> tuple[str, bool]:
     """

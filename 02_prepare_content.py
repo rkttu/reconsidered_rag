@@ -18,6 +18,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Any
 
+import pdfplumber
 import yaml
 from dotenv import load_dotenv
 from langdetect import detect, LangDetectException
@@ -175,6 +176,31 @@ def is_supported_file(file_path: Path) -> bool:
     return file_path.suffix.lower() in SUPPORTED_EXTENSIONS
 
 
+def convert_pdf_to_markdown(file_path: Path) -> str:
+    """
+    PDF 파일을 마크다운으로 변환 (pdfplumber 사용)
+
+    Args:
+        file_path: PDF 파일 경로
+
+    Returns:
+        마크다운 형식의 텍스트
+    """
+    markdown_content = []
+
+    with pdfplumber.open(file_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, 1):
+            text = page.extract_text()
+            if text:
+                # 페이지 헤더 추가
+                markdown_content.append(f"## Page {page_num}\n")
+                # 텍스트 추가 (단순 텍스트로)
+                markdown_content.append(text.strip())
+                markdown_content.append("\n---\n")  # 페이지 구분선
+
+    return "\n".join(markdown_content)
+
+
 def convert_to_markdown(file_path: Path) -> tuple[str, str]:
     """
     파일을 마크다운으로 변환
@@ -200,6 +226,11 @@ def convert_to_markdown(file_path: Path) -> tuple[str, str]:
     if suffix == ".txt":
         content = file_path.read_text(encoding="utf-8")
         return content, "plaintext"
+
+    # PDF 파일인 경우 (pdfplumber 사용)
+    if suffix == ".pdf":
+        content = convert_pdf_to_markdown(file_path)
+        return content, "pdf"
 
     # MarkItDown으로 변환
     md = get_markitdown()
