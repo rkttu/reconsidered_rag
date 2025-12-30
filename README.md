@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/rkttu)](https://github.com/sponsors/rkttu)
 
 A semantic chunking tool using the BGE-M3 embedding model.  
 Converts documents of various formats to Markdown, splits them based on semantic meaning, and preserves heading hierarchy.
@@ -417,17 +418,9 @@ The current system is designed with the following extensions in mind:
 | **Homonym Handling** | Context distinction via domain-specific ontology mapping | Metadata-based |
 | **Multiple Vector DBs** | Migration to Milvus, Qdrant, Pinecone, etc. | Parquet export supported |
 
-## Contributing
-
-1. Fork this repository.
-2. Create a new branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Create a Pull Request.
-
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+This project is licensed under the [Apache License 2.0](LICENSE.md).
 
 ## Module Structure
 
@@ -735,6 +728,12 @@ The current system is designed with the following extensions in mind:
 | **Hybrid Search** | Combination of keyword + vector + graph search | Vector + reranking implemented |
 | **Homonym Handling** | Context distinction via domain-specific ontology mapping | Metadata-based |
 | **Multiple Vector DBs** | Migration to Milvus, Qdrant, Pinecone, etc. | Parquet export supported |
+
+## Sponsorship
+
+If you find this project helpful and would like to support its continued development, please consider sponsoring me on GitHub Sponsors. Your support helps maintain and improve this open-source tool!
+
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/rkttu)](https://github.com/sponsors/rkttu)
 
 ## Contributing
 
