@@ -5,6 +5,8 @@
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/rkttu)](https://github.com/sponsors/rkttu)
 
+[![Watch the demo](https://img.youtube.com/vi/Uj6Vz5CZ4c4/maxresdefault.jpg)](https://youtu.be/Uj6Vz5CZ4c4)
+
 A semantic chunking tool using the PIXIE-Rune embedding model.  
 Converts documents of various formats to Markdown, splits them based on semantic meaning, and preserves heading hierarchy.
 
