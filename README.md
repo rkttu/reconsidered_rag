@@ -254,6 +254,34 @@ python 02_prepare_content.py
 
 All supported file formats are converted to Markdown with metadata added.
 
+#### PDF Processing Options
+
+PDF files can be processed using two different libraries. Set the `PDF_PROCESSOR` environment variable to choose:
+
+| Value | Library | Description |
+| ----- | ------- | ----------- |
+| `pymupdf4llm` (default) | PyMuPDF4LLM | LLM-optimized extraction, better table/structure preservation, automatic line break normalization |
+| `markitdown` | Microsoft MarkItDown | Azure AI integration support (Document Intelligence OCR) |
+
+```bash
+# Use default (pymupdf4llm)
+python 02_prepare_content.py
+
+# Use markitdown (for Azure AI integration)
+PDF_PROCESSOR=markitdown python 02_prepare_content.py
+```
+
+Or add to `.env` file:
+
+```env
+PDF_PROCESSOR=pymupdf4llm  # or "markitdown"
+```
+
+**When to use each option:**
+
+- **pymupdf4llm** (recommended): Best for most PDFs, especially those with complex layouts, tables, or Korean text. Automatically removes unnecessary line breaks caused by PDF page layouts.
+- **markitdown**: Use when Azure Document Intelligence OCR is needed for scanned PDFs or images.
+
 ### 3. Semantic Chunking
 
 ```bash
@@ -555,6 +583,34 @@ python 02_prepare_content.py
 ```
 
 All supported file formats are converted to Markdown with metadata added.
+
+#### PDF Processing Options
+
+PDF files can be processed using two different libraries. Set the `PDF_PROCESSOR` environment variable to choose:
+
+| Value | Library | Description |
+| ----- | ------- | ----------- |
+| `pymupdf4llm` (default) | PyMuPDF4LLM | LLM-optimized extraction, better table/structure preservation, automatic line break normalization |
+| `markitdown` | Microsoft MarkItDown | Azure AI integration support (Document Intelligence OCR) |
+
+```bash
+# Use default (pymupdf4llm)
+python 02_prepare_content.py
+
+# Use markitdown (for Azure AI integration)
+PDF_PROCESSOR=markitdown python 02_prepare_content.py
+```
+
+Or add to `.env` file:
+
+```env
+PDF_PROCESSOR=pymupdf4llm  # or "markitdown"
+```
+
+**When to use each option:**
+
+- **pymupdf4llm** (recommended): Best for most PDFs, especially those with complex layouts, tables, or Korean text. Automatically removes unnecessary line breaks caused by PDF page layouts.
+- **markitdown**: Use when Azure Document Intelligence OCR is needed for scanned PDFs or images.
 
 ### 3. Semantic Chunking
 

@@ -18,7 +18,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Any
 
-import pdfplumber
+import pymupdf4llm
 import yaml
 from dotenv import load_dotenv
 from langdetect import detect, LangDetectException
@@ -32,6 +32,11 @@ load_dotenv()
 BASE_DIR = Path(__file__).parent
 INPUT_DIR = BASE_DIR / "input_docs"
 OUTPUT_DIR = BASE_DIR / "prepared_contents"
+
+# PDF 처리 방식 설정
+# "pymupdf4llm" (기본값): pymupdf4llm 라이브러리 사용 (LLM 최적화, 표/구조 보존)
+# "markitdown": Microsoft markitdown 라이브러리 사용 (Azure AI 연동 가능)
+PDF_PROCESSOR = os.getenv("PDF_PROCESSOR", "pymupdf4llm")
 
 
 # =============================================================================
@@ -176,9 +181,162 @@ def is_supported_file(file_path: Path) -> bool:
     return file_path.suffix.lower() in SUPPORTED_EXTENSIONS
 
 
-def convert_pdf_to_markdown(file_path: Path) -> str:
+# =============================================================================
+# 유니코드 상수 정의 (인코딩 안전)
+# =============================================================================
+
+# 원문자 (Circled Numbers) - ① ~ ⑳
+CIRCLED_NUMBERS = [
+    '\u2460',  # ① CIRCLED DIGIT ONE
+    '\u2461',  # ② CIRCLED DIGIT TWO
+    '\u2462',  # ③ CIRCLED DIGIT THREE
+    '\u2463',  # ④ CIRCLED DIGIT FOUR
+    '\u2464',  # ⑤ CIRCLED DIGIT FIVE
+    '\u2465',  # ⑥ CIRCLED DIGIT SIX
+    '\u2466',  # ⑦ CIRCLED DIGIT SEVEN
+    '\u2467',  # ⑧ CIRCLED DIGIT EIGHT
+    '\u2468',  # ⑨ CIRCLED DIGIT NINE
+    '\u2469',  # ⑩ CIRCLED DIGIT TEN
+    '\u246A',  # ⑪ CIRCLED NUMBER ELEVEN
+    '\u246B',  # ⑫ CIRCLED NUMBER TWELVE
+    '\u246C',  # ⑬ CIRCLED NUMBER THIRTEEN
+    '\u246D',  # ⑭ CIRCLED NUMBER FOURTEEN
+    '\u246E',  # ⑮ CIRCLED NUMBER FIFTEEN
+    '\u246F',  # ⑯ CIRCLED NUMBER SIXTEEN
+    '\u2470',  # ⑰ CIRCLED NUMBER SEVENTEEN
+    '\u2471',  # ⑱ CIRCLED NUMBER EIGHTEEN
+    '\u2472',  # ⑲ CIRCLED NUMBER NINETEEN
+    '\u2473',  # ⑳ CIRCLED NUMBER TWENTY
+]
+
+# 한국어 조항 제목에서 사용하는 괄호
+LEFT_BLACK_LENTICULAR_BRACKET = '\u3010'  # 【
+RIGHT_BLACK_LENTICULAR_BRACKET = '\u3011'  # 】
+
+
+def normalize_line_breaks(text: str) -> str:
     """
-    PDF 파일을 마크다운으로 변환 (pdfplumber 사용)
+    PDF에서 추출된 텍스트의 불필요한 줄바꿈을 정리합니다.
+
+    PDF는 페이지 레이아웃에 맞춰 텍스트를 줄바꿈하기 때문에,
+    문장 중간에 불필요한 줄바꿈이 있을 수 있습니다.
+    이 함수는 문장 중간의 줄바꿈을 제거하고 문단 구분은 유지합니다.
+
+    Args:
+        text: 정리할 텍스트
+
+    Returns:
+        줄바꿈이 정리된 텍스트
+    """
+    lines = text.split('\n')
+    result_lines = []
+    current_paragraph = []
+    pending_empty_lines = 0  # 연속 빈 줄 카운트
+
+    # 새 블록 시작 패턴 (조항 제목 등)
+    # "제1 조 【..." 또는 "제1조【..." 형태만 조항 시작으로 인식
+    # "제1 조(..." 형태는 조항 참조이므로 제외
+    left_bracket = LEFT_BLACK_LENTICULAR_BRACKET  # 【
+    new_block_pattern = re.compile(
+        r'^('
+        rf'\uc81c\s*\d+\s*(\uc870|\uad00|\uc7a5|\uc808|\ud3b8)\s*{left_bracket}|'  # 제1조 【
+        r'\uc81c\s*\d+\s*(\uc870|\uad00|\uc7a5|\uc808|\ud3b8)\s*$|'  # 제1조 (줄 끝)
+        r'\(\ubcc4\ud45c\s*\d+\)|'  # (별표1) 등
+        r'\(\ubcc4\s*\ud45c\s*\d*\)'  # (별 표), (별 표 1)
+        r')'
+    )
+
+    # 항목 시작 패턴 (원문자, 숫자 리스트)
+    # 원문자 패턴을 상수 배열에서 생성
+    circled_pattern = ''.join(CIRCLED_NUMBERS)
+    item_pattern = re.compile(
+        rf'^([{circled_pattern}]|\d+\.)\s*'
+    )
+
+    def is_markdown_structure(stripped: str) -> bool:
+        """마크다운 구조 요소인지 확인"""
+        if not stripped:
+            return False
+        return (stripped.startswith('#') or  # 헤딩
+                stripped.startswith('|') or  # 테이블
+                stripped.startswith('```') or  # 코드블록
+                stripped == '---' or stripped == '-----' or  # 구분선
+                stripped == '===')
+
+    def is_new_section(stripped: str) -> bool:
+        """새 섹션/항목 시작인지 확인"""
+        if not stripped:
+            return False
+        if is_markdown_structure(stripped):
+            return True
+        if new_block_pattern.match(stripped):
+            return True
+        if item_pattern.match(stripped):
+            return True
+        return False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # 빈 줄 처리
+        if not stripped:
+            pending_empty_lines += 1
+            continue
+
+        # 빈 줄 이후 텍스트가 나왔을 때
+        if pending_empty_lines > 0:
+            # 새 섹션/항목 시작이면 이전 문단을 저장하고 빈 줄 추가
+            if is_new_section(stripped):
+                if current_paragraph:
+                    result_lines.append(' '.join(current_paragraph))
+                    current_paragraph = []
+                # 2개 이상의 연속 빈 줄은 하나의 빈 줄로 유지
+                if pending_empty_lines >= 2:
+                    result_lines.append('')
+            else:
+                # 새 섹션이 아니면 페이지 분절로 간주하고 문단 계속 연결
+                # (빈 줄 무시)
+                pass
+            pending_empty_lines = 0
+
+        # 마크다운 구조 요소는 그대로 유지
+        if is_markdown_structure(stripped):
+            if current_paragraph:
+                result_lines.append(' '.join(current_paragraph))
+                current_paragraph = []
+            result_lines.append(stripped)
+            continue
+
+        # 새 블록 시작 (제1조, 제1관 등) - 이전 문단 저장 후 새 줄
+        if new_block_pattern.match(stripped):
+            if current_paragraph:
+                result_lines.append(' '.join(current_paragraph))
+                current_paragraph = []
+            result_lines.append(stripped)
+            continue
+
+        # 항목 시작 (①, ②, 1., 2. 등) - 이전 문단 저장 후 새 항목 시작
+        if item_pattern.match(stripped):
+            if current_paragraph:
+                result_lines.append(' '.join(current_paragraph))
+                current_paragraph = []
+            # 항목 시작이므로 새 문단으로 추가
+            current_paragraph.append(stripped)
+            continue
+
+        # 일반 텍스트: 현재 문단에 추가
+        current_paragraph.append(stripped)
+
+    # 마지막 문단 처리
+    if current_paragraph:
+        result_lines.append(' '.join(current_paragraph))
+
+    return '\n'.join(result_lines)
+
+
+def convert_pdf_to_markdown_pymupdf(file_path: Path) -> str:
+    """
+    PDF 파일을 마크다운으로 변환 (pymupdf4llm 사용)
 
     Args:
         file_path: PDF 파일 경로
@@ -186,19 +344,58 @@ def convert_pdf_to_markdown(file_path: Path) -> str:
     Returns:
         마크다운 형식의 텍스트
     """
-    markdown_content = []
+    # pymupdf4llm을 사용하여 PDF를 마크다운으로 변환
+    # - 표, 이미지, 텍스트 구조를 잘 보존
+    # - LLM에 최적화된 마크다운 출력
+    markdown_content = pymupdf4llm.to_markdown(str(file_path))
 
-    with pdfplumber.open(file_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, 1):
-            text = page.extract_text()
-            if text:
-                # 페이지 헤더 추가
-                markdown_content.append(f"## Page {page_num}\n")
-                # 텍스트 추가 (단순 텍스트로)
-                markdown_content.append(text.strip())
-                markdown_content.append("\n---\n")  # 페이지 구분선
+    # 불필요한 줄바꿈 정리 (PDF 레이아웃으로 인한 문장 중간 줄바꿈 제거)
+    markdown_content = normalize_line_breaks(markdown_content)
 
-    return "\n".join(markdown_content)
+    return markdown_content
+
+
+def convert_pdf_to_markdown_markitdown(file_path: Path) -> str:
+    """
+    PDF 파일을 마크다운으로 변환 (markitdown 사용)
+
+    Azure Document Intelligence가 설정된 경우 OCR 기능 활용 가능
+
+    Args:
+        file_path: PDF 파일 경로
+
+    Returns:
+        마크다운 형식의 텍스트
+    """
+    md = get_markitdown()
+    result = md.convert(str(file_path))
+
+    if result.text_content:
+        return result.text_content
+
+    raise ValueError(f"PDF \ubcc0\ud658 \uacb0\uacfc\uac00 \ube44\uc5b4\uc788\uc2b5\ub2c8\ub2e4: {file_path}")
+
+
+def convert_pdf_to_markdown(file_path: Path, processor: Optional[str] = None) -> str:
+    """
+    PDF 파일을 마크다운으로 변환
+
+    Args:
+        file_path: PDF 파일 경로
+        processor: 사용할 처리기 ("pymupdf4llm" 또는 "markitdown")
+                   None이면 환경변수 PDF_PROCESSOR 값 사용
+
+    Returns:
+        마크다운 형식의 텍스트
+    """
+    if processor is None:
+        processor = PDF_PROCESSOR
+
+    if processor == "markitdown":
+        return convert_pdf_to_markdown_markitdown(file_path)
+    else:
+        # 기본값: pymupdf4llm
+        return convert_pdf_to_markdown_pymupdf(file_path)
 
 
 def convert_to_markdown(file_path: Path) -> tuple[str, str]:
@@ -227,7 +424,7 @@ def convert_to_markdown(file_path: Path) -> tuple[str, str]:
         content = file_path.read_text(encoding="utf-8")
         return content, "plaintext"
 
-    # PDF 파일인 경우 (pdfplumber 사용)
+    # PDF 파일인 경우
     if suffix == ".pdf":
         content = convert_pdf_to_markdown(file_path)
         return content, "pdf"
