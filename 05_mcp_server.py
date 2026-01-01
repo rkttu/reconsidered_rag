@@ -24,7 +24,7 @@ from contextlib import asynccontextmanager
 import numpy as np
 import sqlite_vec
 import torch
-from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
+from FlagEmbedding import BGEM3FlagModel, FlagReranker  # type: ignore[import-untyped]
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -86,9 +86,9 @@ class VectorSearchService:
         self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16, cache_dir=str(CACHE_DIR))
         print("[OK] 모델 로딩 완료")
 
-        # 리랭커 모델 로드 (CPU 전용)
-        print("[*] BGE 리랭커 모델 로딩 중... (CPU)")
-        self.reranker = BGEM3FlagModel("BAAI/bge-reranker-large", use_fp16=False, cache_dir=str(CACHE_DIR))
+        # 리랭커 모델 로드
+        print("[*] BGE 리랭커 모델 로딩 중...")
+        self.reranker = FlagReranker("BAAI/bge-reranker-large", use_fp16=use_fp16, cache_dir=str(CACHE_DIR))
         print("[OK] 리랭커 모델 로딩 완료")
 
         self._initialized = True

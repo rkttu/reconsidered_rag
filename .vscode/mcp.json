@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "aipack-vector-search": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "python", "05_mcp_server.py"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

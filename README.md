@@ -368,6 +368,80 @@ Options:
 }
 ```
 
+### Testing MCP Server in IDEs
+
+This repository includes pre-configured MCP settings for VS Code and Cursor. Simply open the project folder to automatically connect to the MCP server.
+
+#### Supported IDEs
+
+| IDE | Configuration File | Requirements |
+| --- | ------------------ | ------------ |
+| **VS Code + GitHub Copilot** | `.vscode/mcp.json` | GitHub Copilot Chat extension |
+| **Cursor** | `.cursor/mcp.json` | Built-in MCP support |
+
+#### Quick Start
+
+1. **Install dependencies and download models**:
+
+   ```bash
+   uv sync
+   uv run python 01_download_model.py
+   ```
+
+2. **Prepare sample data** (or add your own documents to `input_docs/`):
+
+   ```bash
+   uv run python 02_prepare_content.py
+   uv run python 03_semantic_chunking.py
+   uv run python 04_build_vector_db.py
+   ```
+
+3. **Open the project folder** in VS Code or Cursor
+
+4. **Start using MCP tools** in the chat:
+   - The MCP server starts automatically when you open the folder
+   - Available tools: `search`, `get_chunk`, `list_documents`, `get_stats`
+
+#### Configuration Files
+
+**VS Code** (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "aipack-vector-search": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "python", "05_mcp_server.py"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
+```
+
+**Cursor** (`.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "aipack-vector-search": {
+      "command": "uv",
+      "args": ["run", "python", "05_mcp_server.py"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
+```
+
+#### Troubleshooting
+
+| Issue | Solution |
+| ----- | -------- |
+| MCP server not starting | Ensure `uv sync` was run and models are downloaded |
+| Search returns errors | Restart the MCP server (VS Code: `Ctrl+Shift+P` → `MCP: Restart Server`) |
+| No vector DB found | Run steps 2-4 to build the vector database |
+| Model loading slow | First run downloads ~5GB of models; subsequent runs use cache |
+
 ## Output Schema
 
 | Field | Type | Description |
