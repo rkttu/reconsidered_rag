@@ -1,12 +1,25 @@
-# AI Pack - Semantic Chunking with BGE-M3
+# AI Pack - Semantic Chunking with PIXIE-Rune
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/rkttu)](https://github.com/sponsors/rkttu)
 
-A semantic chunking tool using the BGE-M3 embedding model.  
+A semantic chunking tool using the PIXIE-Rune embedding model.  
 Converts documents of various formats to Markdown, splits them based on semantic meaning, and preserves heading hierarchy.
+
+## Why PIXIE-Rune?
+
+This project originally used the BGE-M3 model but switched to [PIXIE-Rune](https://huggingface.co/telepix/PIXIE-Rune-Preview) for **better Korean language performance**. PIXIE-Rune is optimized for Korean text understanding while maintaining strong multilingual capabilities.
+
+Key differences from BGE-M3:
+
+| Feature | BGE-M3 | PIXIE-Rune |
+| ------- | ------ | ---------- |
+| Korean Performance | Good | **Excellent** |
+| Embedding Dimension | 1024 | 1024 |
+| Max Sequence Length | 8192 | 8192 |
+| ONNX Support | Built-in | **Manual conversion required** |
 
 ## Project Concept
 
@@ -76,7 +89,9 @@ Intermediate results from each step are saved as parquet files, making various e
   - Only configured services are automatically activated
 - **Semantic Chunking**: Chunk splitting based on semantic similarity
 - **Markdown Structure Preservation**: Maintains hierarchical information like heading levels and section paths
-- **Multilingual Support**: BGE-M3's support for 100+ languages
+- **Enhanced Korean Support**: PIXIE-Rune model optimized for Korean text
+- **Multilingual Support**: Strong performance across multiple languages
+- **ONNX Optimization**: Pre-converted ONNX model for faster CPU inference
 - **Incremental Updates**: Change detection based on content hash
 - **zstd Compression**: Efficient parquet storage
 - **BGE Reranker**: Reranking support for improved search result accuracy
@@ -98,11 +113,12 @@ Intermediate results from each step are saved as parquet files, making various e
 
 | Module | Description |
 | ------ | ----------- |
-| `01_download_model.py` | BGE-M3 embedding model and reranker model download |
+| `01_download_model.py` | PIXIE-Rune embedding model download + ONNX conversion |
 | `02_prepare_content.py` | Metadata extraction and YAML front matter generation |
 | `03_semantic_chunking.py` | Semantic chunking and parquet storage |
 | `04_build_vector_db.py` | sqlite-vec vector DB build and search |
 | `05_mcp_server.py` | MCP server (stdio/SSE mode support) |
+| `embedding_model.py` | Unified embedding interface (ONNX/PyTorch) |
 
 ## Installation
 
@@ -166,7 +182,7 @@ PORT=9090 docker-compose up
 
 The container automatically performs the following steps on startup:
 
-1. **Model Download**: Check cache and download BGE-M3 and reranker models
+1. **Model Download**: Check cache and download PIXIE-Rune embedding model + ONNX conversion
 2. **Data Processing**: If `input_docs/` exists, prepare documents → chunking → vector DB build
 3. **Server Start**: Run MCP server (SSE mode by default)
 
@@ -238,11 +254,19 @@ Or:
 
 ## Usage
 
-### 1. Model Download (One-time)
+### 1. Model Download and ONNX Conversion (One-time)
 
 ```bash
 python 01_download_model.py
 ```
+
+This script:
+
+1. Downloads the PIXIE-Rune embedding model from Hugging Face
+2. Downloads the BGE Reranker model
+3. **Converts the embedding model to ONNX format** for faster CPU inference
+
+The ONNX conversion is automatic and saves the optimized model to `cache/onnx_model/`.
 
 ### 2. Document Preparation
 
@@ -319,7 +343,7 @@ Exported parquet files (`vectors_export.parquet`) can be directly imported to th
 | **Pinecone** | Direct import using `upsert()` method |
 | **Chroma** | Direct import using `add()` method |
 
-Vector format: `float32[1024]` (BGE-M3 Dense vectors)
+Vector format: `float32[1024]` (PIXIE-Rune Dense vectors)
 
 ### 5. MCP Server Execution
 
@@ -464,14 +488,18 @@ This repository includes pre-configured MCP settings for VS Code and Cursor. Sim
 
 ```text
 aipack/
-├── 01_download_model.py       # BGE-M3 model download
+├── 01_download_model.py       # PIXIE-Rune model download + ONNX conversion
 ├── 02_prepare_content.py      # Metadata extraction + Azure integration
 ├── 03_semantic_chunking.py    # Semantic chunking
 ├── 04_build_vector_db.py      # Vector DB build
 ├── 05_mcp_server.py           # MCP server (stdio/SSE)
+├── embedding_model.py         # Unified embedding interface
 ├── input_docs/                # Input documents
 ├── prepared_contents/         # Documents with metadata added
 ├── chunked_data/              # Chunked parquet files
+├── cache/
+│   ├── huggingface/           # Model cache directory
+│   └── onnx_model/            # ONNX converted model
 ├── vector_db/                 # sqlite-vec vector DB
 │   ├── vectors.db             # Local vector DB
 │   └── vectors_export.parquet # Export file for migration
@@ -505,7 +533,7 @@ Other content...
 ## System Requirements
 
 - Python 3.11+
-- ~5GB disk space (for BGE-M3 + reranker models)
+- ~5GB disk space (for PIXIE-Rune + reranker models + ONNX cache)
 - 8GB+ RAM recommended
 - GPU (optional): Automatically utilized if CUDA-compatible GPU available
 

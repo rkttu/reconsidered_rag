@@ -1,11 +1,11 @@
 """
 03_semantic_chunking.py
-Module that splits markdown files from prepared_contents using BGE-M3 embedding model
+Module that splits markdown files from prepared_contents using PIXIE-Rune embedding model
 for semantic chunking and saves as parquet files
 
 Features:
 - Markdown structure parsing (preserves heading hierarchy)
-- BGE-M3 embedding-based semantic similarity chunking
+- PIXIE-Rune ONNX embedding-based semantic similarity chunking
 - zstd compression and incremental update support
 """
 
@@ -23,15 +23,15 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import mistune
-import torch
-from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
+
+from embedding_model import get_embedding_model, PIXIEEmbeddingModel
 
 # Suppress transformers tokenizer warnings
 import logging
 logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
 
 
-def get_device_info() -> tuple[str, bool]:
+def _deprecated_get_device_info() -> tuple[str, bool]:
     """
     Return available device and FP16 support status
 
@@ -464,7 +464,7 @@ class MarkdownParser:
 
 
 class SemanticChunker:
-    """BGE-M3 기반 시맨틱 청킹"""
+    """PIXIE-Rune 기반 시맨틱 청킹"""
     
     def __init__(
         self,
@@ -475,29 +475,21 @@ class SemanticChunker:
         self.similarity_threshold = similarity_threshold
         self.min_chunk_size = min_chunk_size
         self.max_chunk_size = max_chunk_size
-        self.model: Any = None
+        self.model: Optional[PIXIEEmbeddingModel] = None
         self.parser = MarkdownParser()
         self._load_model()
     
     def _load_model(self) -> None:
-        """BGE-M3 모델 로드 (GPU 없으면 CPU 폴백)"""
-        device_name, use_fp16 = get_device_info()
-
-        if use_fp16:
-            print(f"🔄 BGE-M3 모델 로딩 중... (GPU: {device_name}, FP16)")
-        else:
-            print(f"🔄 BGE-M3 모델 로딩 중... ({device_name}, FP32)")
-
-        self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16)
-        print("✅ 모델 로딩 완료")
+        """PIXIE-Rune ONNX 모델 로드"""
+        self.model = get_embedding_model(use_onnx=True)
+        self.model.initialize()
     
     def _get_embeddings(self, texts: list[str]) -> np.ndarray:
         """텍스트 리스트의 임베딩 계산"""
-        if not texts:
+        if not texts or self.model is None:
             return np.array([])
         
-        result = self.model.encode(texts, batch_size=32)
-        return result["dense_vecs"]
+        return self.model.encode(texts, batch_size=32, is_query=False)
     
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """코사인 유사도 계산"""

@@ -1,10 +1,10 @@
 """
 04_build_vector_db.py
-Module that reads parquet files from chunked_data, generates BGE-M3 embeddings,
+Module that reads parquet files from chunked_data, generates PIXIE-Rune embeddings,
 and compiles them into a local vector database based on sqlite-vec
 
 Features:
-- BGE-M3 Dense vector (1024-dimension) based search
+- PIXIE-Rune Dense vector (1024-dimension) based search
 - Utilizes sqlite-vec extension (vector similarity search)
 - Stores metadata and vectors together
 - Parquet export portable to Milvus/Qdrant, etc.
@@ -22,28 +22,14 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlite_vec
-import torch
-from FlagEmbedding import BGEM3FlagModel  # type: ignore[import-untyped]
+
+from embedding_model import get_embedding_model, PIXIEEmbeddingModel, EMBEDDING_DIM
 
 
 # 디렉터리 설정
 BASE_DIR = Path(__file__).parent
 INPUT_DIR = BASE_DIR / "chunked_data"
 OUTPUT_DIR = BASE_DIR / "vector_db"
-
-# BGE-M3 설정
-EMBEDDING_DIM = 1024  # BGE-M3 Dense 벡터 차원
-
-
-def get_device_info() -> tuple[str, bool]:
-    """Return available device and FP16 support status"""
-    if torch.cuda.is_available():
-        device_name = torch.cuda.get_device_name(0)
-        return device_name, True
-    elif torch.backends.mps.is_available():
-        return "Apple MPS", False
-    else:
-        return "CPU", False
 
 
 class VectorDBBuilder:
@@ -52,19 +38,12 @@ class VectorDBBuilder:
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.conn: Optional[sqlite3.Connection] = None
-        self.model: Optional[Any] = None
+        self.model: Optional[PIXIEEmbeddingModel] = None
 
     def _load_model(self) -> None:
-        """BGE-M3 모델 로드"""
-        device_name, use_fp16 = get_device_info()
-
-        if use_fp16:
-            print(f"🔄 BGE-M3 모델 로딩 중... (GPU: {device_name}, FP16)")
-        else:
-            print(f"🔄 BGE-M3 모델 로딩 중... ({device_name}, FP32)")
-
-        self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16)
-        print("✅ 모델 로딩 완료")
+        """PIXIE-Rune ONNX 모델 로드"""
+        self.model = get_embedding_model(use_onnx=True)
+        self.model.initialize()
 
     def _init_db(self) -> None:
         """sqlite-vec DB 초기화"""
@@ -129,8 +108,7 @@ class VectorDBBuilder:
         if not texts or self.model is None:
             return np.array([])
 
-        result = self.model.encode(texts, batch_size=32)
-        return result["dense_vecs"].astype(np.float32)
+        return self.model.encode(texts, batch_size=32, is_query=False)
 
     def _serialize_vector(self, vec: np.ndarray) -> bytes:
         """numpy 벡터를 sqlite-vec용 bytes로 변환"""

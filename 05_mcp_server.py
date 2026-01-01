@@ -13,6 +13,18 @@ Execution methods:
 - SSE mode: python 05_mcp_server.py --sse --port 8080
 """
 
+import sys
+import io
+
+# Windows에서 UTF-8 인코딩 강제 (이모지 출력 문제 해결)
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(
+        sys.stdout.buffer, encoding='utf-8', errors='replace'
+    )
+    sys.stderr = io.TextIOWrapper(
+        sys.stderr.buffer, encoding='utf-8', errors='replace'
+    )
+
 import json
 import sqlite3
 import struct
@@ -23,8 +35,8 @@ from contextlib import asynccontextmanager
 
 import numpy as np
 import sqlite_vec
-import torch
-from FlagEmbedding import BGEM3FlagModel, FlagReranker  # type: ignore[import-untyped]
+
+from embedding_model import get_embedding_model, PIXIEEmbeddingModel, EMBEDDING_DIM
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -41,19 +53,8 @@ VECTOR_DB_DIR = BASE_DIR / "vector_db"
 CACHE_DIR = BASE_DIR / "cache" / "huggingface"
 DEFAULT_DB_PATH = VECTOR_DB_DIR / "vectors.db"
 
-# BGE-M3 설정
-EMBEDDING_DIM = 1024
 
-
-def get_device_info() -> tuple[str, bool]:
-    """Return available device and FP16 support status"""
-    if torch.cuda.is_available():
-        device_name = torch.cuda.get_device_name(0)
-        return device_name, True
-    elif torch.backends.mps.is_available():
-        return "Apple MPS", False
-    else:
-        return "CPU", False
+import time
 
 
 class VectorSearchService:
@@ -62,44 +63,56 @@ class VectorSearchService:
     def __init__(self, db_path: Path = DEFAULT_DB_PATH):
         self.db_path = db_path
         self.conn: Optional[sqlite3.Connection] = None
-        self.model: Optional[Any] = None
-        self.reranker: Optional[Any] = None
+        self.model: Optional[PIXIEEmbeddingModel] = None
         self._initialized = False
+
+    def _log(self, message: str) -> None:
+        """타임스탬프와 함께 로그 출력 (stderr로)"""
+        import sys
+        timestamp = time.strftime("%H:%M:%S")
+        print(f"[{timestamp}] {message}", file=sys.stderr, flush=True)
 
     def initialize(self) -> None:
         """서비스 초기화 (lazy loading)"""
         if self._initialized:
+            self._log("이미 초기화됨, 스킵")
             return
+
+        start_time = time.time()
+        self._log("초기화 시작...")
 
         # DB 연결
         if not self.db_path.exists():
             raise FileNotFoundError(f"벡터 DB를 찾을 수 없습니다: {self.db_path}")
 
+        self._log(f"DB 연결 중: {self.db_path}")
         self.conn = sqlite3.connect(str(self.db_path))
         self.conn.enable_load_extension(True)
         sqlite_vec.load(self.conn)
         self.conn.enable_load_extension(False)
+        self._log(f"DB 연결 완료 ({time.time() - start_time:.2f}s)")
 
-        # 모델 로드
-        device_name, use_fp16 = get_device_info()
-        print(f"[*] BGE-M3 모델 로딩 중... ({device_name})")
-        self.model = BGEM3FlagModel("BAAI/bge-m3", use_fp16=use_fp16, cache_dir=str(CACHE_DIR))
-        print("[OK] 모델 로딩 완료")
-
-        # 리랭커 모델 로드
-        print("[*] BGE 리랭커 모델 로딩 중...")
-        self.reranker = FlagReranker("BAAI/bge-reranker-large", use_fp16=use_fp16, cache_dir=str(CACHE_DIR))
-        print("[OK] 리랭커 모델 로딩 완료")
+        # PIXIE-Rune ONNX 모델 로드
+        model_start = time.time()
+        self._log("ONNX 모델 로딩 시작...")
+        self.model = get_embedding_model(use_onnx=True)
+        self._log("모델 객체 생성 완료, initialize() 호출 중...")
+        self.model.initialize()
+        self._log(f"모델 로딩 완료 ({time.time() - model_start:.2f}s)")
 
         self._initialized = True
+        self._log(f"전체 초기화 완료 (총 {time.time() - start_time:.2f}s)")
 
     def _get_embedding(self, text: str) -> np.ndarray:
-        """텍스트의 Dense 임베딩 계산"""
+        """텍스트의 Dense 임베딩 계산 (쿼리용)"""
         if self.model is None:
             raise RuntimeError("모델이 초기화되지 않았습니다")
-
-        result = self.model.encode([text], batch_size=1)
-        return result["dense_vecs"][0].astype(np.float32)
+        
+        self._log(f"임베딩 계산 중: '{text[:50]}...'")
+        start = time.time()
+        result = self.model.encode([text], batch_size=1, is_query=True)[0]
+        self._log(f"임베딩 계산 완료 ({time.time() - start:.2f}s)")
+        return result
 
     def _serialize_vector(self, vec: np.ndarray) -> bytes:
         """numpy 벡터를 sqlite-vec용 bytes로 변환"""
@@ -112,6 +125,9 @@ class VectorSearchService:
         domain_filter: Optional[str] = None,
     ) -> list[dict]:
         """벡터 유사도 검색"""
+        self._log(f"search() 호출: query='{query[:50]}...', top_k={top_k}")
+        search_start = time.time()
+        
         self.initialize()
 
         if self.conn is None:
@@ -122,6 +138,8 @@ class VectorSearchService:
         query_bytes = self._serialize_vector(query_embedding)
 
         # 벡터 검색
+        self._log("벡터 DB 검색 중...")
+        db_start = time.time()
         limit = top_k * 2 if domain_filter else top_k
         results = self.conn.execute("""
             SELECT
@@ -139,6 +157,7 @@ class VectorSearchService:
               AND k = ?
             ORDER BY v.distance
         """, (query_bytes, limit)).fetchall()
+        self._log(f"DB 검색 완료: {len(results)}개 결과 ({time.time() - db_start:.2f}s)")
 
         # 결과 변환 및 필터링
         output = []
@@ -161,15 +180,8 @@ class VectorSearchService:
             if len(output) >= top_k:
                 break
 
-        # 리랭킹 적용 (BGE 리랭커 사용)
-        if output and self.reranker is not None:
-            candidate_texts = [item["chunk_text"] for item in output]
-            scores = self.reranker.compute_score([[query, text] for text in candidate_texts])
-            for i, item in enumerate(output):
-                item["rerank_score"] = float(scores[i])
-            # 리랭킹 점수로 재정렬 (높은 점수가 더 관련성 높음)
-            output.sort(key=lambda x: x["rerank_score"], reverse=True)
-
+        # 결과는 이미 similarity 순으로 정렬됨
+        self._log(f"search() 완료: {len(output)}개 반환 (총 {time.time() - search_start:.2f}s)")
         return output
 
     def get_chunk(self, chunk_id: str) -> Optional[dict]:
@@ -294,11 +306,23 @@ class VectorSearchService:
 # MCP 서버 정의
 # =============================================================================
 
-def create_mcp_server(db_path: Path = DEFAULT_DB_PATH) -> Server:
-    """Create MCP server"""
+def create_mcp_server(db_path: Path = DEFAULT_DB_PATH, preload: bool = True) -> Server:
+    """Create MCP server
+    
+    Args:
+        db_path: Path to vector database
+        preload: If True, preload model at server start (slower start, faster first query)
+    """
 
     server = Server("aipack-vector-search")
     search_service = VectorSearchService(db_path)
+    
+    # 서버 시작 시 미리 모델 로딩 (첫 요청 지연 방지)
+    if preload:
+        import sys
+        print("[서버 시작] 모델 사전 로딩 중... (최초 1회만 소요)", file=sys.stderr, flush=True)
+        search_service.initialize()
+        print("[서버 시작] 모델 로딩 완료, 요청 대기 중", file=sys.stderr, flush=True)
 
     @server.list_tools()
     async def list_tools() -> list[Tool]:
