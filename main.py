@@ -97,12 +97,22 @@ def mcp_server(sse: bool = typer.Option(False, help="SSE 모드"), port: int = t
     raise RuntimeError("No main() in 05_mcp_server.py")
 
 
+@app.command()
+def cleanup(
+    include_cache: bool = typer.Option(False, "--include-cache", help="캐시 디렉터리도 함께 정리"),
+    force: bool = typer.Option(False, "--force", "-f", help="확인 프롬프트 없이 바로 삭제"),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="삭제 세부 내역 출력 안함"),
+):
+    """출력 디렉터리 정리 (prepared_contents, chunked_data, vector_db, test_output)"""
+    mod = _load_module_from_file("99_cleanup.py")
+    if hasattr(mod, "main"):
+        result = mod.main(include_cache=include_cache, force=force, verbose=not quiet)
+        raise SystemExit(result)
+    raise RuntimeError("No main() in 99_cleanup.py")
+
+
 def main():
     app()
-
-
-if __name__ == "__main__":
-    main()
 
 
 if __name__ == "__main__":
