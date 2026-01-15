@@ -47,6 +47,8 @@ Reconsidered RAG is intentionally **not** positioned as the following:
   Reconsidered RAG does not claim that AI systems can be made fully safe.
   It exists to make risks explicit, discussable, and owned by the operator.
 
+**Reconsidered RAG exists to slow decisions down, not to accelerate deployments.**
+
 ## Architecture
 
 ```mermaid
@@ -580,5 +582,6 @@ If you find this project helpful and would like to support its continued develop
 3. Commit your changes: `git commit -m 'Add amazing feature'`
 4. Push to the branch: `git push origin feature/amazing-feature`
 5. Create a Pull Request.
+
 
 
