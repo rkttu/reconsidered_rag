@@ -1,7 +1,7 @@
 [project]
-name = "aipack"
+name = "reconsidered_rag"
 version = "0.1.0"
-description = "AI-powered document processing with Phi-4 ONNX model for propositional chunking"
+description = "AI-powered document processing with ONNX model for propositional chunking"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
