@@ -23,6 +23,30 @@ aipack provides a foundation for vector RAG while serving as a starting point fo
 - **Database Neutrality**: Not tied to specific vector DBs, flexible expansion based on parquet
 - **Incremental Updates**: Flexible response to changes in embedding models or source content
 
+## What this project is NOT
+
+Reconsidered RAG is intentionally **not** positioned as the following:
+
+- **Not a product or service**  
+  This project is not a SaaS, platform, or deployable solution for general users.
+  It does not aim to provide ready-made answers or turnkey deployments.
+
+- **Not a framework or toolkit**  
+  Reconsidered RAG does not try to standardize how RAG *should* be built.
+  It documents how RAG *can fail*, and where boundaries must be drawn.
+
+- **Not a performance benchmark**  
+  Model quality, retrieval speed, or accuracy scores are not the primary focus.
+  Faster or “better” answers are meaningless if responsibility and control are unclear.
+
+- **Not a generic AI abstraction layer**  
+  This project does not attempt to hide complexity behind convenience.
+  Explicit constraints and visible trade-offs are considered part of the design.
+
+- **Not a promise of safety**  
+  Reconsidered RAG does not claim that AI systems can be made fully safe.
+  It exists to make risks explicit, discussable, and owned by the operator.
+
 ## Architecture
 
 ```mermaid
@@ -556,4 +580,5 @@ If you find this project helpful and would like to support its continued develop
 3. Commit your changes: `git commit -m 'Add amazing feature'`
 4. Push to the branch: `git push origin feature/amazing-feature`
 5. Create a Pull Request.
+
 
