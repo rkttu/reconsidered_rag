@@ -1,4 +1,4 @@
-# AI Pack - Semantic Chunking with PIXIE-Rune
+# Reconsidered RAG
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
@@ -7,21 +7,10 @@
 
 [![Watch the demo](https://img.youtube.com/vi/Uj6Vz5CZ4c4/maxresdefault.jpg)](https://youtu.be/Uj6Vz5CZ4c4)
 
-A semantic chunking tool using the PIXIE-Rune embedding model.  
-Converts documents of various formats to Markdown, splits them based on semantic meaning, and preserves heading hierarchy.
+Reconsidered RAG is a reference project that rethinks how RAG should be applied
+in environments where responsibility, data sovereignty, and failure boundaries matter.
 
-## Why PIXIE-Rune?
-
-This project originally used the BGE-M3 model but switched to [PIXIE-Rune](https://huggingface.co/telepix/PIXIE-Rune-Preview) for **better Korean language performance**. PIXIE-Rune is optimized for Korean text understanding while maintaining strong multilingual capabilities.
-
-Key differences from BGE-M3:
-
-| Feature | BGE-M3 | PIXIE-Rune |
-| ------- | ------ | ---------- |
-| Korean Performance | Good | **Excellent** |
-| Embedding Dimension | 1024 | 1024 |
-| Max Sequence Length | 8192 | 8192 |
-| ONNX Support | Built-in | **Manual conversion required** |
+This project was formerly known as **AIPACK**.
 
 ## Project Concept
 
@@ -567,3 +556,4 @@ If you find this project helpful and would like to support its continued develop
 3. Commit your changes: `git commit -m 'Add amazing feature'`
 4. Push to the branch: `git push origin feature/amazing-feature`
 5. Create a Pull Request.
+
