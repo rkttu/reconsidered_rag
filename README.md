@@ -7,21 +7,32 @@
 
 [![Watch the demo](https://img.youtube.com/vi/Uj6Vz5CZ4c4/maxresdefault.jpg)](https://youtu.be/Uj6Vz5CZ4c4)
 
-Reconsidered RAG is a reference project that rethinks how RAG should be applied
-in environments where responsibility, data sovereignty, and failure boundaries matter.
+Reconsidered RAG is a reference project that rethinks how Retrieval-Augmented Generation
+should be applied in environments where responsibility, data sovereignty,
+and failure boundaries matter.
 
 This project was formerly known as **AIPACK**.
 
-## Project Concept
+---
 
-> Basecamp for various RAG extensions + Simple preview
+## Why this project exists
 
-aipack provides a foundation for vector RAG while serving as a starting point for extensions like graph RAG and hybrid RAG:
+Reconsidered RAG exists to question an assumption that has quietly become common:
+that retrieval-augmented generation should always aim to answer more, faster, and better.
 
-- **Basecamp Role**: Parquet files act as "extension hubs" for easy migration to various backends like Milvus, Qdrant, Memgraph
-- **Preview Role**: MCP server enables testing/prototyping before building full RAG applications
-- **Database Neutrality**: Not tied to specific vector DBs, flexible expansion based on parquet
-- **Incremental Updates**: Flexible response to changes in embedding models or source content
+In regulated, sensitive, or responsibility-heavy environments,
+those goals often conflict with reality.
+
+This project focuses on:
+
+- where retrieval boundaries should be drawn,
+- when a system should refuse to answer,
+- and how responsibility remains with the operator, not the model or the service.
+
+The code in this repository serves as a **reference implementation**
+to support these discussions, not as a blueprint to be copied verbatim.
+
+---
 
 ## What this project is NOT
 
@@ -29,549 +40,124 @@ Reconsidered RAG is intentionally **not** positioned as the following:
 
 - **Not a product or service**  
   This project is not a SaaS, platform, or deployable solution for general users.
-  It does not aim to provide ready-made answers or turnkey deployments.
+  It does not aim to provide turnkey deployments or production guarantees.
 
 - **Not a framework or toolkit**  
-  Reconsidered RAG does not try to standardize how RAG *should* be built.
+  Reconsidered RAG does not attempt to standardize how RAG *should* be built.
   It documents how RAG *can fail*, and where boundaries must be drawn.
 
 - **Not a performance benchmark**  
   Model quality, retrieval speed, or accuracy scores are not the primary focus.
-  Faster or “better” answers are meaningless if responsibility and control are unclear.
+  Faster answers are meaningless if responsibility and control are unclear.
 
 - **Not a generic AI abstraction layer**  
-  This project does not attempt to hide complexity behind convenience.
+  Complexity is not hidden behind convenience.
   Explicit constraints and visible trade-offs are considered part of the design.
 
 - **Not a promise of safety**  
-  Reconsidered RAG does not claim that AI systems can be made fully safe.
+  This project does not claim that AI systems can be made fully safe.
   It exists to make risks explicit, discussable, and owned by the operator.
 
-**Reconsidered RAG exists to slow decisions down, not to accelerate deployments.**
+---
 
-## Architecture
+## Design Principles
 
-```mermaid
-flowchart TD
-    subgraph "Input"
-        A[input_docs/<br/>Various format documents]
-    end
-    
-    subgraph "Preprocessing"
-        B[02_prepare_content.py<br/>Metadata extraction<br/>Markdown conversion]
-    end
-    
-    subgraph "Chunking"
-        C[03_semantic_chunking.py<br/>Semantic chunking<br/>Embedding generation]
-    end
-    
-    subgraph "Storage"
-        D[chunked_data/<br/>parquet files]
-    end
-    
-    subgraph "Vector DB"
-        E[04_build_vector_db.py<br/>sqlite-vec build]
-    end
-    
-    subgraph "Serving"
-        F[05_mcp_server.py<br/>MCP server<br/>Vector search + reranking]
-    end
-    
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    
-    style A fill:#e1f5fe
-    style B fill:#f3e5f5
-    style C fill:#e8f5e8
-    style D fill:#fff3e0
-    style E fill:#fce4ec
-    style F fill:#e0f2f1
-```
+Reconsidered RAG is guided by the following principles:
 
-Intermediate results from each step are saved as parquet files, making various experiments and external system migrations easy.
+- **Explicit boundaries over implicit behavior**  
+  Every retrieval scope, data flow, and integration point should be visible
+  and explainable. Hidden defaults are treated as a design failure.
 
-## Features
+- **Responsibility is owned, not abstracted away**  
+  Decisions made by the system must have a clear owner.
+  External services do not absolve operators from accountability.
 
-- **Support for Various Document Formats**: Using Microsoft markitdown
-  - Office documents: Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
-  - PDF, HTML, XML, JSON, CSV
-  - Images (EXIF/OCR), Audio (speech recognition), Video (subtitle extraction)
-  - Code files, Jupyter Notebook, ZIP archives
-- **Microsoft Foundry Service Integration** (Optional)
-  - Document Intelligence: Enhanced OCR for scanned PDFs and images
-  - Azure OpenAI (GPT-4o): Image content understanding
-  - Only configured services are automatically activated
-- **Semantic Chunking**: Chunk splitting based on semantic similarity
-- **Markdown Structure Preservation**: Maintains hierarchical information like heading levels and section paths
-- **Enhanced Korean Support**: PIXIE-Rune model optimized for Korean text
-- **Multilingual Support**: Strong performance across multiple languages
-- **ONNX Optimization**: Pre-converted ONNX model for faster CPU inference
-- **Incremental Updates**: Change detection based on content hash
-- **zstd Compression**: Efficient parquet storage
-- **BGE Reranker**: Reranking support for improved search result accuracy
-- **CPU-Friendly**: Works without GPU (automatically uses GPU if available)
+- **Refusal is a valid and expected outcome**  
+  The system is allowed to say "no" when inputs exceed defined boundaries.
+  Answering every question is not a goal.
 
-## Supported File Formats
+- **Constraints are part of the feature set**  
+  Limitations, trade-offs, and non-goals are documented explicitly.
+  Convenience is secondary to clarity.
 
-| Category | Extensions |
-| -------- | ---------- |
-| Office Documents | `.docx`, `.doc`, `.xlsx`, `.xls`, `.pptx`, `.ppt` |
-| PDF/Web | `.pdf`, `.html`, `.htm`, `.xml`, `.json`, `.csv` |
-| Markdown/Text | `.md`, `.markdown`, `.txt`, `.rst` |
-| Images (EXIF/OCR) | `.jpg`, `.jpeg`, `.png`, `.gif`, `.bmp`, `.webp`, `.tiff` |
-| Audio (Speech Recognition) | `.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac` |
-| Video (Subtitle Extraction) | `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm` |
-| Code/Other | `.py`, `.js`, `.ts`, `.java`, `.c`, `.cpp`, `.ipynb`, `.zip` |
+- **Failure modes matter more than success cases**  
+  This project prioritizes understanding how and where RAG systems fail,
+  especially under ambiguous or adversarial conditions.
 
-## Module Structure
+---
 
-| Module | Description |
-| ------ | ----------- |
-| `01_download_model.py` | PIXIE-Rune embedding model download + ONNX conversion |
-| `02_prepare_content.py` | Metadata extraction and YAML front matter generation |
-| `03_semantic_chunking.py` | Semantic chunking and parquet storage |
-| `04_build_vector_db.py` | sqlite-vec vector DB build and search |
-| `05_mcp_server.py` | MCP server (stdio/SSE mode support) |
-| `embedding_model.py` | Unified embedding interface (ONNX/PyTorch) |
+## Failure modes we explicitly care about
 
-## Installation
+Reconsidered RAG pays particular attention to failure modes such as:
 
-### Installing uv
+- silent expansion of retrieval scope,
+- accidental inclusion of sensitive or unintended documents,
+- overconfident answers derived from weakly grounded context,
+- lack of an explicit refusal path,
+- and unclear ownership when things go wrong.
 
-uv is a fast Python package manager. Install it from the official repository:
+These are not edge cases.
+They are expected outcomes when RAG systems are deployed without explicit boundaries.
 
-**Windows (PowerShell):**
+---
 
-```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
+## Reference implementation (non-goals first)
 
-**Linux/macOS:**
+The implementation in this repository intentionally favors:
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+- transparent intermediate artifacts over opaque pipelines,
+- database portability over aggressive optimization,
+- inspection and reasoning over automation.
 
-Or install via pip:
+These choices are not meant to define "the right way" to build RAG systems.
+They exist to make trade-offs and failure modes visible.
 
-```bash
-pip install uv
-```
+Concretely, this means:
 
-For more installation options, visit: <https://github.com/astral-sh/uv>.
+- intermediate data stored in inspectable formats (such as parquet),
+- an MCP server used for controlled inspection, not production serving,
+- and deliberate avoidance of early commitment to specific databases or vendors.
 
-### Installing Dependencies
+---
 
-```bash
-# Using uv (recommended)
-uv sync
+## Implementation details
 
-# Or using pip
-pip install FlagEmbedding mistune pyarrow pandas pyyaml markitdown[all]
-```
+For detailed implementation documentation including:
 
-> **Note**: The `huggingface-hub[hf_xet]` package is included to improve download speeds for Xet Storage-supported models.
+- Architecture and data flow diagrams
+- Installation and setup instructions
+- Module descriptions and usage
+- Configuration options
+- Containerization with Docker
+- IDE integration (VS Code, Cursor)
+- Output schema and directory structure
 
-## Containerization
+See **[IMPLEMENTATION.md](IMPLEMENTATION.md)**.
 
-The program can be containerized using Docker. Model files are mounted as host volumes for caching.
+---
 
-### Build and Run
+## Scope and intended audience
 
-```bash
-# Build image
-docker-compose build
+Reconsidered RAG is written for:
 
-# Run (automatic model download → data processing → server start)
-docker-compose up
+- engineers working in regulated or sensitive environments,
+- architects responsible for AI adoption decisions,
+- and practitioners who have experienced RAG failures firsthand.
 
-# Or stdio mode
-docker-compose run --rm aipack ./entrypoint.sh
+It is not optimized for beginners,
+nor for teams seeking quick production wins.
 
-# Specify port
-PORT=9090 docker-compose up
-```
-
-### Execution Flow
-
-The container automatically performs the following steps on startup:
-
-1. **Model Download**: Check cache and download PIXIE-Rune embedding model + ONNX conversion
-2. **Data Processing**: If `input_docs/` exists, prepare documents → chunking → vector DB build
-3. **Server Start**: Run MCP server (SSE mode by default)
-
-> **Note**: Works even in environments without uv or Python runtime (multi-stage build)
-
-### Volume Mounts
-
-- **Model Cache**: `./cache/huggingface` → `/root/.cache/huggingface` in container
-  - Stores large files like BGE-M3 and reranker models in project's `cache/` directory
-  - Explicit `cache_dir` setting in code controls cache location
-  - Cache reuse on container restart saves download time
-- **Data Directories**: `input_docs`, `prepared_contents`, `chunked_data`, `vector_db`
-  - Data sharing between host and container
-
-### Environment Variables
-
-- `PYTHONUNBUFFERED=1`: Immediate log output
-
-## Microsoft Foundry Service Integration (Optional)
-
-Works with basic markitdown alone, but better results can be achieved by integrating Microsoft Foundry services.
-
-### Supported Services
-
-| Service | Purpose | Enhanced Features |
-| ------- | ------- | ----------------- |
-| Document Intelligence | Scanned PDF, image OCR | Text extraction accuracy |
-| Azure OpenAI (GPT-4o) | Image content understanding | Image description generation |
-
-### Configuration
-
-```bash
-# 1. Create environment file
-cp .env.example .env
-
-# 2. Enter only necessary keys (only configured services are activated)
-```
-
-Example `.env` file:
-
-```env
-# Document Intelligence (scanned PDF, image OCR)
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
-AZURE_DOCUMENT_INTELLIGENCE_KEY=your-key
-
-# Azure OpenAI (image content understanding)
-AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/
-AZURE_OPENAI_API_KEY=your-key
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
-```
-
-### Operation
-
-- **No Keys**: Uses basic markitdown only
-- **Some Services Configured**: Only those services are activated
-- **All Configured**: Full functionality activated
-
-Integration status is displayed during execution:
-
-```text
-🔗 Azure services integrated: Document Intelligence, OpenAI (gpt-4o)
-```
-
-Or:
-
-```text
-ℹ️ Azure services not integrated (using basic markitdown)
-```
-
-## Usage
-
-### 1. Model Download and ONNX Conversion (One-time)
-
-```bash
-python 01_download_model.py
-```
-
-This script:
-
-1. Downloads the PIXIE-Rune embedding model from Hugging Face
-2. Downloads the BGE Reranker model
-3. **Converts the embedding model to ONNX format** for faster CPU inference
-
-The ONNX conversion is automatic and saves the optimized model to `cache/onnx_model/`.
-
-### 2. Document Preparation
-
-Place files in `input_docs/` directory (various formats supported):
-
-```bash
-python 02_prepare_content.py
-```
-
-All supported file formats are converted to Markdown with metadata added.
-
-#### PDF Processing Options
-
-PDF files can be processed using two different libraries. Set the `PDF_PROCESSOR` environment variable to choose:
-
-| Value | Library | Description |
-| ----- | ------- | ----------- |
-| `pymupdf4llm` (default) | PyMuPDF4LLM | LLM-optimized extraction, better table/structure preservation, automatic line break normalization |
-| `markitdown` | Microsoft MarkItDown | Azure AI integration support (Document Intelligence OCR) |
-
-```bash
-# Use default (pymupdf4llm)
-python 02_prepare_content.py
-
-# Use markitdown (for Azure AI integration)
-PDF_PROCESSOR=markitdown python 02_prepare_content.py
-```
-
-Or add to `.env` file:
-
-```env
-PDF_PROCESSOR=pymupdf4llm  # or "markitdown"
-```
-
-**When to use each option:**
-
-- **pymupdf4llm** (recommended): Best for most PDFs, especially those with complex layouts, tables, or Korean text. Automatically removes unnecessary line breaks caused by PDF page layouts.
-- **markitdown**: Use when Azure Document Intelligence OCR is needed for scanned PDFs or images.
-
-### 3. Semantic Chunking
-
-```bash
-python 03_semantic_chunking.py
-```
-
-Options:
-
-- `--input-dir`: Input directory (default: `prepared_contents`)
-- `--output-dir`: Output directory (default: `chunked_data`)
-- `--similarity-threshold`: Similarity threshold (default: 0.5)
-
-### 4. Vector DB Build
-
-```bash
-python 04_build_vector_db.py
-```
-
-Options:
-
-- `--input-dir`: Input directory (default: `chunked_data`)
-- `--output-dir`: Output directory (default: `vector_db`)
-- `--db-name`: DB filename (default: `vectors.db`)
-- `--export-parquet`: Export parquet for Milvus/Qdrant migration
-- `--test-search "query"`: Perform test search after build
-
-#### Vector DB Portability
-
-Exported parquet files (`vectors_export.parquet`) can be directly imported to the following vector DBs:
-
-| Vector DB | Import Method |
-| --------- | ------------- |
-| **Milvus** | Direct import using `pymilvus`'s `insert()` method |
-| **Qdrant** | Upsert via REST API or Python client |
-| **Pinecone** | Direct import using `upsert()` method |
-| **Chroma** | Direct import using `add()` method |
-
-Vector format: `float32[1024]` (PIXIE-Rune Dense vectors)
-
-### 5. MCP Server Execution
-
-Provides vector search via MCP protocol.
-
-#### stdio Mode (Claude Desktop, Cursor, etc.)
-
-```bash
-python 05_mcp_server.py
-```
-
-#### SSE Mode (Web clients)
-
-```bash
-python 05_mcp_server.py --sse --port 8080
-```
-
-Options:
-
-- `--db-path`: Vector DB path (default: `vector_db/vectors.db`)
-- `--sse`: Run in SSE mode
-- `--host`: SSE server host (default: `127.0.0.1`)
-- `--port`: SSE server port (default: `8080`)
-
-#### Available Tools
-
-| Tool | Description |
-| ---- | ----------- |
-| `search` | Vector similarity search + reranking |
-| `get_chunk` | Detailed lookup by chunk ID |
-| `list_documents` | Document list lookup |
-| `get_stats` | DB statistics lookup |
-
-#### Claude Desktop Configuration Example
-
-`claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "aipack-vector-search": {
-      "command": "python",
-      "args": ["D:/Projects/aipack/05_mcp_server.py"]
-    }
-  }
-}
-```
-
-### Testing MCP Server in IDEs
-
-This repository includes pre-configured MCP settings for VS Code and Cursor. Simply open the project folder to automatically connect to the MCP server.
-
-#### Supported IDEs
-
-| IDE | Configuration File | Requirements |
-| --- | ------------------ | ------------ |
-| **VS Code + GitHub Copilot** | `.vscode/mcp.json` | GitHub Copilot Chat extension |
-| **Cursor** | `.cursor/mcp.json` | Built-in MCP support |
-
-#### Quick Start
-
-1. **Install dependencies and download models**:
-
-   ```bash
-   uv sync
-   uv run python 01_download_model.py
-   ```
-
-2. **Prepare sample data** (or add your own documents to `input_docs/`):
-
-   ```bash
-   uv run python 02_prepare_content.py
-   uv run python 03_semantic_chunking.py
-   uv run python 04_build_vector_db.py
-   ```
-
-3. **Open the project folder** in VS Code or Cursor
-
-4. **Start using MCP tools** in the chat:
-   - The MCP server starts automatically when you open the folder
-   - Available tools: `search`, `get_chunk`, `list_documents`, `get_stats`
-
-#### Configuration Files
-
-**VS Code** (`.vscode/mcp.json`):
-
-```json
-{
-  "servers": {
-    "aipack-vector-search": {
-      "type": "stdio",
-      "command": "uv",
-      "args": ["run", "python", "05_mcp_server.py"],
-      "cwd": "${workspaceFolder}"
-    }
-  }
-}
-```
-
-**Cursor** (`.cursor/mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "aipack-vector-search": {
-      "command": "uv",
-      "args": ["run", "python", "05_mcp_server.py"],
-      "cwd": "${workspaceFolder}"
-    }
-  }
-}
-```
-
-#### Troubleshooting
-
-| Issue | Solution |
-| ----- | -------- |
-| MCP server not starting | Ensure `uv sync` was run and models are downloaded |
-| Search returns errors | Restart the MCP server (VS Code: `Ctrl+Shift+P` → `MCP: Restart Server`) |
-| No vector DB found | Run steps 2-4 to build the vector database |
-| Model loading slow | First run downloads ~5GB of models; subsequent runs use cache |
-
-## Output Schema
-
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `chunk_id` | string | Unique chunk ID |
-| `content_hash` | string | Content hash (for incremental updates) |
-| `chunk_text` | string | Chunk text |
-| `chunk_type` | string | Type (header, paragraph, list, code, table) |
-| `heading_level` | int32 | Heading level (0=normal, 1-6=H1-H6) |
-| `heading_text` | string | Current heading text |
-| `parent_heading` | string | Parent heading text |
-| `section_path` | list[string] | Section hierarchy path array |
-| `table_headers` | list[string] | Table column headers (if table) |
-| `table_row_count` | int32 | Table data row count (if table) |
-| `domain` | string | Domain (metadata) |
-| `keywords` | string | Keywords JSON (metadata) |
-| `version` | int32 | Version number |
-
-## Directory Structure
-
-```text
-aipack/
-├── 01_download_model.py       # PIXIE-Rune model download + ONNX conversion
-├── 02_prepare_content.py      # Metadata extraction + Azure integration
-├── 03_semantic_chunking.py    # Semantic chunking
-├── 04_build_vector_db.py      # Vector DB build
-├── 05_mcp_server.py           # MCP server (stdio/SSE)
-├── embedding_model.py         # Unified embedding interface
-├── input_docs/                # Input documents
-├── prepared_contents/         # Documents with metadata added
-├── chunked_data/              # Chunked parquet files
-├── cache/
-│   ├── huggingface/           # Model cache directory
-│   └── onnx_model/            # ONNX converted model
-├── vector_db/                 # sqlite-vec vector DB
-│   ├── vectors.db             # Local vector DB
-│   └── vectors_export.parquet # Export file for migration
-├── .env.example               # Environment variable template
-├── pyproject.toml
-└── README.md
-```
-
-## Examples
-
-### Input Markdown
-
-```markdown
-# Title
-
-## Section 1
-Content...
-
-## Section 2
-Other content...
-```
-
-### Output Parquet Example
-
-| chunk_id | heading_level | heading_text | section_path |
-| -------- | ------------- | ------------ | ------------ |
-| abc123 | 1 | Title | # Title |
-| def456 | 2 | Section 1 | # Title / ## Section 1 |
-| ghi789 | 2 | Section 2 | # Title / ## Section 2 |
-
-## System Requirements
-
-- Python 3.11+
-- ~5GB disk space (for PIXIE-Rune + reranker models + ONNX cache)
-- 8GB+ RAM recommended
-- GPU (optional): Automatically utilized if CUDA-compatible GPU available
-
-## Future Extension Possibilities
-
-The current system is designed with the following extensions in mind:
-
-| Extension Direction | Description | Current Status |
-| ------------------- | ----------- | -------------- |
-| **Graph RAG** | Ontology-based entity/relation extraction → Node/edge parquet generation | Design completed |
-| **Hybrid Search** | Combination of keyword + vector + graph search | Vector + reranking implemented |
-| **Homonym Handling** | Context distinction via domain-specific ontology mapping | Metadata-based |
-| **Multiple Vector DBs** | Migration to Milvus, Qdrant, Pinecone, etc. | Parquet export supported |
+---
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE.md).
+This project is licensed under the [Apache License 2.0](LICENSE).
 
 ## Sponsorship
 
-If you find this project helpful and would like to support its continued development, please consider sponsoring me on GitHub Sponsors. Your support helps maintain and improve this open-source tool!
+If you find this project helpful and would like to support its continued development,
+please consider sponsoring on GitHub Sponsors.
+Your support helps maintain and improve this open-source project.
 
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/rkttu)](https://github.com/sponsors/rkttu)
 
@@ -583,5 +169,12 @@ If you find this project helpful and would like to support its continued develop
 4. Push to the branch: `git push origin feature/amazing-feature`
 5. Create a Pull Request.
 
+---
 
+## Final note
 
+Reconsidered RAG exists to slow decisions down,
+not to accelerate deployments.
+
+If this repository makes you pause before adding "just one more document"
+to your retrieval pipeline, it has done its job.
