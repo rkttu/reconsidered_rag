@@ -69,6 +69,10 @@ Key differences from BGE-M3:
 
 ## Features
 
+> [!NOTE]
+> The following features reflect implementation choices made for this experiment.
+They should not be interpreted as a recommended or complete RAG feature set.
+
 - **Support for Various Document Formats**: Using Microsoft markitdown
   - Office documents: Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
   - PDF, HTML, XML, JSON, CSV
@@ -529,6 +533,10 @@ reconsidered_rag/
 ---
 
 ## Future Extension Possibilities
+
+> [!NOTE]
+> These extensions are intentionally not implemented yet.
+They are listed to document design intent, not roadmap commitments.
 
 The current system is designed with the following extensions in mind:
 
