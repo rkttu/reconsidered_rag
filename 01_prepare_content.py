@@ -80,7 +80,11 @@ def get_azure_document_intelligence_client() -> Optional[Any]:
 
 
 def get_azure_openai_client() -> Optional[Any]:
-    """Create Azure OpenAI client (GPT-4o Vision)"""
+    """
+    Create Azure OpenAI client (GPT-4o Vision)
+    
+    Supports both Azure OpenAI and Azure AI Foundry (OpenAI-compatible) endpoints.
+    """
     endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
     key = os.getenv("AZURE_OPENAI_API_KEY")
 
@@ -88,13 +92,27 @@ def get_azure_openai_client() -> Optional[Any]:
         return None
 
     try:
-        from openai import AzureOpenAI  # type: ignore[import-untyped]
+        # Check if it's Azure AI Foundry OpenAI-compatible endpoint
+        if "cognitiveservices.azure.com" in endpoint or "/v1" in endpoint:
+            from openai import OpenAI  # type: ignore[import-untyped]
+            
+            # Ensure endpoint ends with /v1/ for OpenAI-compatible API
+            if not endpoint.rstrip("/").endswith("/v1"):
+                endpoint = endpoint.rstrip("/") + "/openai/v1/"
+            
+            return OpenAI(
+                base_url=endpoint,
+                api_key=key,
+            )
+        else:
+            # Standard Azure OpenAI endpoint
+            from openai import AzureOpenAI  # type: ignore[import-untyped]
 
-        return AzureOpenAI(
-            azure_endpoint=endpoint,
-            api_key=key,
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-        )
+            return AzureOpenAI(
+                azure_endpoint=endpoint,
+                api_key=key,
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+            )
     except ImportError:
         print("⚠️ openai package is not installed.")
         return None

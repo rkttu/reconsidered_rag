@@ -38,9 +38,10 @@ def get_enrichment_client() -> Optional[tuple[str, Any]]:
     Get LLM client for content enrichment.
     
     Uses the same Azure OpenAI credentials as Step 1 (01_prepare_content.py).
+    Supports both Azure OpenAI and Azure AI Foundry (OpenAI-compatible) endpoints.
     
     Required:
-    - AZURE_OPENAI_ENDPOINT
+    - AZURE_OPENAI_ENDPOINT (can be .openai.azure.com or .cognitiveservices.azure.com)
     - AZURE_OPENAI_API_KEY
     
     Optional:
@@ -55,14 +56,29 @@ def get_enrichment_client() -> Optional[tuple[str, Any]]:
         return None
     
     try:
-        from openai import AzureOpenAI  # type: ignore[import-untyped]
-        
-        client = AzureOpenAI(
-            azure_endpoint=endpoint,
-            api_key=api_key,
-            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
-        )
-        return ("openai", client)
+        # Check if it's Azure AI Foundry OpenAI-compatible endpoint
+        if "cognitiveservices.azure.com" in endpoint or "/v1" in endpoint:
+            from openai import OpenAI  # type: ignore[import-untyped]
+            
+            # Ensure endpoint ends with /v1/ for OpenAI-compatible API
+            if not endpoint.rstrip("/").endswith("/v1"):
+                endpoint = endpoint.rstrip("/") + "/openai/v1/"
+            
+            client = OpenAI(
+                base_url=endpoint,
+                api_key=api_key,
+            )
+            return ("openai", client)
+        else:
+            # Standard Azure OpenAI endpoint
+            from openai import AzureOpenAI  # type: ignore[import-untyped]
+            
+            client = AzureOpenAI(
+                azure_endpoint=endpoint,
+                api_key=api_key,
+                api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+            )
+            return ("openai", client)
     except ImportError:
         print("⚠️ openai package is not installed.")
         print("   Install with: uv sync --extra enrich")
@@ -82,6 +98,7 @@ def expand_content_with_llm(
     Expand terse content (bullet points, lists) into complete sentences.
     
     This improves embedding quality by making implicit context explicit.
+    Uses different strategies based on source_format.
     
     Args:
         content: Original markdown content (without front matter)
@@ -91,6 +108,117 @@ def expand_content_with_llm(
     
     Returns:
         Expanded markdown content
+    """
+    source_format = metadata.get("source_format", "markdown")
+    
+    # Determine enrichment strategy based on source format
+    if source_format in ("pptx", "ppt"):
+        return enrich_presentation_content(content, metadata, client_info, model)
+    else:
+        return enrich_document_content(content, metadata, client_info, model)
+
+
+def enrich_presentation_content(
+    content: str,
+    metadata: dict,
+    client_info: tuple[str, Any],
+    model: Optional[str] = None,
+) -> str:
+    """
+    Enrich presentation (pptx/ppt) content.
+    
+    Strategy: Preserve slide structure and bullet points,
+    add contextual information to each slide without destroying the format.
+    """
+    client_type, client = client_info
+    model = model or os.getenv(
+        "AZURE_OPENAI_ENRICHMENT_MODEL",
+        os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    )
+    
+    title = metadata.get("title", "Unknown Presentation")
+    domain = metadata.get("domain", "general")
+    
+    # Truncate content to avoid token limits
+    max_chars = 48000
+    truncated = content[:max_chars] if len(content) > max_chars else content
+    was_truncated = len(content) > max_chars
+    
+    system_prompt = """You are a technical writer improving presentation slides for semantic search.
+
+Your task: Add brief contextual descriptions to each slide while PRESERVING the original structure.
+
+CRITICAL Rules:
+1. KEEP all slide markers (<!-- Slide number: X -->) exactly as they are
+2. KEEP all bullet points as bullet points - DO NOT convert them to paragraphs
+3. KEEP all headings (# ## ###) exactly as they are
+4. KEEP all images and their markdown syntax exactly as they are
+5. ADD a brief 1-2 sentence context paragraph AFTER each slide heading (before bullets)
+6. The context should explain what this slide is about in the presentation
+7. DO NOT remove or rewrite any original content
+8. Write in the same language as the original content
+
+Example transformation:
+BEFORE:
+<!-- Slide number: 3 -->
+# Agenda
+- Introduction
+- Architecture
+- Demo
+- Q&A
+
+AFTER:
+<!-- Slide number: 3 -->
+# Agenda
+
+This slide outlines the main topics covered in this presentation.
+
+- Introduction
+- Architecture
+- Demo
+- Q&A
+
+Return ONLY the improved markdown content, no explanations."""
+
+    user_prompt = f"""Presentation: {title}
+Domain: {domain}
+
+Add contextual descriptions to each slide (preserve all structure):
+
+{truncated}"""
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=8000,
+            temperature=0.3,
+        )
+        result_text = response.choices[0].message.content
+        
+        if was_truncated:
+            result_text += "\n\n" + content[max_chars:]
+        
+        return result_text.strip()
+        
+    except Exception as e:
+        print(f"   ⚠️ LLM enrichment failed: {e}")
+        return content
+
+
+def enrich_document_content(
+    content: str,
+    metadata: dict,
+    client_info: tuple[str, Any],
+    model: Optional[str] = None,
+) -> str:
+    """
+    Enrich document content (markdown, txt, etc.).
+    
+    Strategy: Expand bullet points and lists into complete sentences.
     """
     client_type, client = client_info
     # Priority: explicit param > ENRICHMENT_MODEL > DEPLOYMENT_NAME > default

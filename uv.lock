@@ -2011,9 +2011,10 @@ wheels = [
 
 [[package]]
 name = "reconsidered-rag"
-version = "0.3.0"
+version = "0.3.1"
 source = { virtual = "." }
 dependencies = [
+    { name = "hf-xet" },
     { name = "langdetect" },
     { name = "markitdown", extra = ["all"] },
     { name = "mistune" },
@@ -2022,6 +2023,8 @@ dependencies = [
     { name = "pymupdf4llm" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "sentence-transformers" },
+    { name = "sqlite-vec" },
     { name = "tqdm" },
     { name = "typer" },
 ]
@@ -2064,6 +2067,7 @@ vectordb = [
 requires-dist = [
     { name = "azure-ai-inference", marker = "extra == 'enrich'", specifier = ">=1.0.0b1" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
+    { name = "hf-xet", specifier = ">=1.2.0" },
     { name = "langdetect", specifier = ">=1.0.9" },
     { name = "markitdown", extras = ["all"], specifier = ">=0.1.4" },
     { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = ">=1.25.0" },
@@ -2079,8 +2083,10 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "reconsidered-rag", extras = ["enrich", "vectordb", "mcp"], marker = "extra == 'all'" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
+    { name = "sentence-transformers", specifier = ">=5.2.0" },
     { name = "sentence-transformers", marker = "extra == 'mcp'", specifier = ">=3.0.0" },
     { name = "sentence-transformers", marker = "extra == 'vectordb'", specifier = ">=3.0.0" },
+    { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "sqlite-vec", marker = "extra == 'mcp'", specifier = ">=0.1.6" },
     { name = "sqlite-vec", marker = "extra == 'vectordb'", specifier = ">=0.1.6" },
     { name = "starlette", marker = "extra == 'mcp'", specifier = ">=0.27.0" },
