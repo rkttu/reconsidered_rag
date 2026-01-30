@@ -37,43 +37,34 @@ def get_enrichment_client() -> Optional[tuple[str, Any]]:
     """
     Get LLM client for content enrichment.
     
-    Supports:
-    - Microsoft Foundry (Azure AI Inference API)
-    - Azure OpenAI
+    Uses the same Azure OpenAI credentials as Step 1 (01_prepare_content.py).
+    
+    Required:
+    - AZURE_OPENAI_ENDPOINT
+    - AZURE_OPENAI_API_KEY
+    
+    Optional:
+    - AZURE_OPENAI_ENRICHMENT_MODEL (default: AZURE_OPENAI_DEPLOYMENT_NAME)
     
     Returns None if environment variables are not set.
     """
-    endpoint = os.getenv("ENRICHMENT_ENDPOINT")
-    api_key = os.getenv("ENRICHMENT_API_KEY")
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
     
     if not endpoint or not api_key:
         return None
     
     try:
-        # Try Azure AI Inference SDK first (for Microsoft Foundry)
-        from azure.ai.inference import ChatCompletionsClient
-        from azure.core.credentials import AzureKeyCredential
-        
-        client = ChatCompletionsClient(
-            endpoint=endpoint,
-            credential=AzureKeyCredential(api_key),
-        )
-        return ("azure-ai-inference", client)
-    except ImportError:
-        pass
-    
-    try:
-        # Fallback to OpenAI SDK (for Azure OpenAI)
         from openai import AzureOpenAI
         
         client = AzureOpenAI(
             azure_endpoint=endpoint,
             api_key=api_key,
-            api_version=os.getenv("ENRICHMENT_API_VERSION", "2024-02-15-preview"),
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
         )
         return ("openai", client)
     except ImportError:
-        print("⚠️ Neither azure-ai-inference nor openai package is installed.")
+        print("⚠️ openai package is not installed.")
         print("   Install with: uv sync --extra enrich")
         return None
     except Exception as e:
@@ -102,7 +93,11 @@ def expand_content_with_llm(
         Expanded markdown content
     """
     client_type, client = client_info
-    model = model or os.getenv("ENRICHMENT_MODEL", "gpt-4.1")
+    # Priority: explicit param > ENRICHMENT_MODEL > DEPLOYMENT_NAME > default
+    model = model or os.getenv(
+        "AZURE_OPENAI_ENRICHMENT_MODEL",
+        os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+    )
     
     # Get document context
     title = metadata.get("title", "Unknown Document")
@@ -150,31 +145,16 @@ Expand this content into complete sentences:
 {truncated}"""
 
     try:
-        if client_type == "azure-ai-inference":
-            from azure.ai.inference.models import SystemMessage, UserMessage
-            
-            response = client.complete(
-                model=model,
-                messages=[
-                    SystemMessage(content=system_prompt),
-                    UserMessage(content=user_prompt),
-                ],
-                max_tokens=8000,
-                temperature=0.3,
-            )
-            result_text = response.choices[0].message.content
-        else:
-            # OpenAI SDK
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=8000,
-                temperature=0.3,
-            )
-            result_text = response.choices[0].message.content
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=8000,
+            temperature=0.3,
+        )
+        result_text = response.choices[0].message.content
         
         # If content was truncated, append the remaining part
         if was_truncated:
@@ -230,12 +210,21 @@ def enrich_document(
         # LLM expansion
         expanded_body = expand_content_with_llm(body, metadata, client_info)
         
-        # Update metadata
-        metadata["enriched"] = True
-        metadata["enriched_at"] = datetime.now().isoformat()
-        metadata["enriched_model"] = os.getenv("ENRICHMENT_MODEL", "gpt-4.1")
+        # Check if enrichment actually happened (compare with original)
+        actually_enriched = expanded_body != body
         
-        status = "enriched"
+        if actually_enriched:
+            # Update metadata only if content was actually changed
+            metadata["enriched"] = True
+            metadata["enriched_at"] = datetime.now().isoformat()
+            metadata["enriched_model"] = os.getenv(
+                "AZURE_OPENAI_ENRICHMENT_MODEL",
+                os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+            )
+            status = "enriched"
+        else:
+            # LLM call failed, fallback to copy
+            status = "copied (LLM failed)"
     else:
         # Simple copy
         expanded_body = body
@@ -279,15 +268,18 @@ def process_all_documents(
     client_info = get_enrichment_client()
     
     if client_info:
-        model = os.getenv("ENRICHMENT_MODEL", "gpt-4.1")
+        model = os.getenv(
+            "AZURE_OPENAI_ENRICHMENT_MODEL",
+            os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
+        )
         print(f"🤖 LLM Content Expansion: {model}")
     else:
         print("📋 No LLM configured - copying files without enrichment")
         print("")
         print("To enable enrichment, set these environment variables:")
-        print("  ENRICHMENT_ENDPOINT=https://your-endpoint.inference.ai.azure.com")
-        print("  ENRICHMENT_API_KEY=your-api-key")
-        print("  ENRICHMENT_MODEL=gpt-4.1  (optional)")
+        print("  AZURE_OPENAI_ENDPOINT=https://your-openai.openai.azure.com/")
+        print("  AZURE_OPENAI_API_KEY=your-api-key")
+        print("  AZURE_OPENAI_ENRICHMENT_MODEL=gpt-4.1  (optional)")
     
     print("=" * 50)
     
@@ -309,6 +301,7 @@ def process_all_documents(
     
     enriched_count = 0
     copied_count = 0
+    failed_count = 0
     
     for i, input_path in enumerate(md_files, 1):
         print(f"\n[{i}/{len(md_files)}] {input_path.name}")
@@ -325,7 +318,10 @@ def process_all_documents(
                     enriched_count += 1
                 elif status == "copied":
                     copied_count += 1
-                # skipped doesn't increment either counter
+                elif "LLM failed" in status:
+                    copied_count += 1
+                    failed_count += 1
+                # skipped doesn't increment any counter
                 
         except Exception as e:
             print(f"   ❌ Error: {e}")
@@ -333,6 +329,8 @@ def process_all_documents(
     print("\n" + "=" * 50)
     if client_info:
         print(f"✅ Enriched: {enriched_count}/{len(md_files)} documents")
+        if failed_count > 0:
+            print(f"⚠️ LLM failed (copied): {failed_count} documents")
     else:
         print(f"📋 Copied: {copied_count}/{len(md_files)} documents")
     print(f"📁 Output: {output_dir}")
