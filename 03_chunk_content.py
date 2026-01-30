@@ -1,6 +1,6 @@
 """
-02_chunk_content.py
-Module that splits markdown files from prepared_contents using structure-based chunking
+03_chunk_content.py
+Module that splits markdown files from enriched_contents using structure-based chunking
 and saves as parquet files
 
 Features:
@@ -26,7 +26,7 @@ import mistune
 
 # Directory settings
 BASE_DIR = Path(__file__).parent
-INPUT_DIR = BASE_DIR / "prepared_contents"
+INPUT_DIR = BASE_DIR / "enriched_contents"
 OUTPUT_DIR = BASE_DIR / "chunked_data"
 
 # Chunking settings

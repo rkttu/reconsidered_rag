@@ -1,6 +1,6 @@
 [project]
 name = "reconsidered_rag"
-version = "0.3.0"
+version = "0.3.1"
 description = "Portable RAG dataset preparation: offline chunking, human-readable checkpoints, infrastructure-agnostic"
 readme = "README.md"
 license = "Apache-2.0"
@@ -53,7 +53,9 @@ all = [
 ]
 
 [project.scripts]
+# 5-step pipeline (v0.3.1)
 prepare-content = "01_prepare_content:main"
-chunk-content = "02_chunk_content:main"
-build-vectordb = "03_build_vector_db:main"
-mcp-server = "04_mcp_server:main"
+enrich-content = "02_enrich_content:main"
+chunk-content = "03_chunk_content:main"
+build-vectordb = "04_build_vector_db:main"
+mcp-server = "05_mcp_server:main"

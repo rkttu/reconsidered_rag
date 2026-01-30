@@ -384,6 +384,73 @@ uv sync --extra vectordb
 uv sync --extra all
 ```
 
+---
+
+## v0.3.1 — 5-Step Pipeline Restructure (January 2026)
+
+### Explicit Step Separation
+
+After implementing v0.3.0 with `--enrich` as an option in step 1, I reconsidered the pipeline structure:
+
+> "What if I want to run enrichment separately, or skip it when API keys aren't set?"
+
+The flag-based approach had limitations:
+
+| Problem | Impact |
+| ------- | ------ |
+| Mixed concerns | Document conversion + LLM enrichment in same step |
+| All-or-nothing | Can't re-enrich without re-processing |
+| Silent failure | Easy to forget the flag |
+
+### What's New in v0.3.1
+
+#### Explicit 5-Step Pipeline
+
+```text
+01_prepare_content.py   → Document → Markdown (pure conversion)
+02_enrich_content.py    → LLM enrichment (auto-skip if no .env)
+03_chunk_content.py     → Structure-based chunking
+04_build_vector_db.py   → BGE-M3/E5 local embedding
+05_mcp_server.py        → MCP server for testing
+```
+
+#### Auto-Skip Behavior
+
+Step 2 (enrichment) now checks for environment variables:
+
+```bash
+# If these are not set, step 2 prints a message and exits cleanly
+ENRICHMENT_ENDPOINT="https://your-endpoint.inference.ai.azure.com"
+ENRICHMENT_API_KEY="your-api-key"
+```
+
+#### Re-Enrichment Support
+
+```bash
+# Re-enrich all documents (even already enriched ones)
+uv run python 02_enrich_content.py --force
+```
+
+### Benefits of Separation
+
+| Aspect | v0.3.0 (`--enrich` flag) | v0.3.1 (separate step) |
+| ------ | ------------------------ | ---------------------- |
+| Re-processing | Must redo step 1 | Only run step 2 |
+| Batch control | All or nothing | Per-step granularity |
+| CI/CD | Flag management | Step skipping |
+| Debugging | Interleaved logs | Clean separation |
+
+### CLI Changes
+
+```bash
+# v0.3.0 (removed)
+uv run python 01_prepare_content.py --enrich  # ❌ No longer available
+
+# v0.3.1 (new)
+uv run python 02_enrich_content.py            # ✅ Separate step
+uv run python 02_enrich_content.py --force    # ✅ Re-enrich all
+```
+
 ### The Lesson
 
 **Flexibility > Purity**

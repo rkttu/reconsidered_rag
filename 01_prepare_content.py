@@ -10,10 +10,8 @@ Features:
 - Automatic keyword extraction (headings, bold, link texts, etc.)
 - Language detection support
 - YAML front matter generation
-- Optional LLM enrichment (Microsoft Foundry GPT-4.1)
-  - Smart summary generation
-  - Enhanced keyword extraction
-  - Question generation for RAG
+
+Note: LLM enrichment is handled separately by 02_enrich_content.py
 """
 
 import os
@@ -113,156 +111,6 @@ def get_azure_speech_config() -> Optional[tuple[str, str]]:
     if key and region:
         return key, region
     return None
-
-
-# =============================================================================
-# LLM Enrichment Configuration (Microsoft Foundry / Azure OpenAI)
-# =============================================================================
-
-def get_enrichment_client() -> Optional[Any]:
-    """
-    Get LLM client for content enrichment.
-    
-    Supports:
-    - Microsoft Foundry (Azure AI Inference API)
-    - Azure OpenAI
-    
-    Environment variables:
-    - ENRICHMENT_ENDPOINT: API endpoint URL
-    - ENRICHMENT_API_KEY: API key
-    - ENRICHMENT_MODEL: Model deployment name (default: gpt-4.1)
-    """
-    endpoint = os.getenv("ENRICHMENT_ENDPOINT")
-    api_key = os.getenv("ENRICHMENT_API_KEY")
-    
-    if not endpoint or not api_key:
-        return None
-    
-    try:
-        # Try Azure AI Inference SDK first (for Microsoft Foundry)
-        from azure.ai.inference import ChatCompletionsClient
-        from azure.core.credentials import AzureKeyCredential
-        
-        client = ChatCompletionsClient(
-            endpoint=endpoint,
-            credential=AzureKeyCredential(api_key),
-        )
-        return ("azure-ai-inference", client)
-    except ImportError:
-        pass
-    
-    try:
-        # Fallback to OpenAI SDK (for Azure OpenAI)
-        from openai import AzureOpenAI
-        
-        client = AzureOpenAI(
-            azure_endpoint=endpoint,
-            api_key=api_key,
-            api_version=os.getenv("ENRICHMENT_API_VERSION", "2024-02-15-preview"),
-        )
-        return ("openai", client)
-    except ImportError:
-        print("⚠️ Neither azure-ai-inference nor openai package is installed.")
-        return None
-    except Exception as e:
-        print(f"⚠️ Failed to create enrichment client: {e}")
-        return None
-
-
-def enrich_with_llm(
-    content: str,
-    client_info: tuple[str, Any],
-    model: Optional[str] = None,
-) -> dict[str, Any]:
-    """
-    Enrich document metadata using LLM.
-    
-    Generates:
-    - llm_summary: Concise summary (2-3 sentences)
-    - llm_keywords: Additional semantic keywords
-    - llm_questions: Potential questions this content can answer
-    - llm_entities: Named entities and concepts
-    
-    Args:
-        content: Document content (truncated if too long)
-        client_info: Tuple of (client_type, client)
-        model: Model deployment name
-    
-    Returns:
-        Dict with enriched metadata fields
-    """
-    client_type, client = client_info
-    model = model or os.getenv("ENRICHMENT_MODEL", "gpt-4.1")
-    
-    # Truncate content to avoid token limits (roughly 12K tokens = 48K chars)
-    max_chars = 48000
-    truncated = content[:max_chars] if len(content) > max_chars else content
-    
-    system_prompt = """You are a document analysis assistant. Analyze the given document and extract structured metadata.
-
-Return a JSON object with these fields:
-- "summary": A concise 2-3 sentence summary of the document's main topic and purpose.
-- "keywords": List of 5-10 important keywords/concepts not obvious from headings.
-- "questions": List of 3-5 questions this document can answer.
-- "entities": List of named entities (tools, frameworks, concepts, companies) mentioned.
-- "difficulty": Estimated difficulty level: "beginner", "intermediate", or "advanced".
-
-Return ONLY valid JSON, no additional text."""
-
-    user_prompt = f"""Analyze this document:
-
-{truncated}
-
-Return the analysis as JSON."""
-
-    try:
-        if client_type == "azure-ai-inference":
-            from azure.ai.inference.models import SystemMessage, UserMessage
-            
-            response = client.complete(
-                model=model,
-                messages=[
-                    SystemMessage(content=system_prompt),
-                    UserMessage(content=user_prompt),
-                ],
-                max_tokens=1000,
-                temperature=0.3,
-            )
-            result_text = response.choices[0].message.content
-        else:
-            # OpenAI SDK
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=1000,
-                temperature=0.3,
-            )
-            result_text = response.choices[0].message.content
-        
-        # Parse JSON response
-        import json
-        # Clean potential markdown code blocks
-        if result_text.startswith("```"):
-            lines = result_text.split("\n")
-            result_text = "\n".join(lines[1:-1])
-        
-        result = json.loads(result_text)
-        
-        return {
-            "llm_summary": result.get("summary", ""),
-            "llm_keywords": result.get("keywords", []),
-            "llm_questions": result.get("questions", []),
-            "llm_entities": result.get("entities", []),
-            "llm_difficulty": result.get("difficulty", ""),
-            "enriched_with": model,
-        }
-        
-    except Exception as e:
-        print(f"   ⚠️ LLM enrichment failed: {e}")
-        return {}
 
 
 # =============================================================================
@@ -501,7 +349,17 @@ def convert_pdf_to_markdown_pymupdf(file_path: Path) -> str:
     # pymupdf4llm을 사용하여 PDF를 마크다운으로 변환
     # - 표, 이미지, 텍스트 구조를 잘 보존
     # - LLM에 최적화된 마크다운 출력
-    markdown_content = pymupdf4llm.to_markdown(str(file_path))
+    result = pymupdf4llm.to_markdown(str(file_path))
+
+    # pymupdf4llm can return str or List[Dict] depending on options
+    if isinstance(result, list):
+        # If it's a list, join the text content
+        markdown_content = "\n\n".join(
+            item.get("text", "") if isinstance(item, dict) else str(item)
+            for item in result
+        )
+    else:
+        markdown_content = result
 
     # 불필요한 줄바꿈 정리 (PDF 레이아웃으로 인한 문장 중간 줄바꿈 제거)
     markdown_content = normalize_line_breaks(markdown_content)
@@ -828,8 +686,6 @@ def create_summary(content: str, max_length: int = 300) -> str:
 def prepare_document(
     input_path: Path,
     output_path: Optional[Path] = None,
-    enrich: bool = False,
-    enrichment_client: Optional[tuple[str, Any]] = None,
 ) -> Path:
     """
     문서에 YAML front matter 메타데이터 추가
@@ -837,8 +693,6 @@ def prepare_document(
     Args:
         input_path: 입력 파일 경로 (다양한 형식 지원)
         output_path: 출력 경로 (기본값: OUTPUT_DIR)
-        enrich: LLM을 사용한 메타데이터 향상 여부
-        enrichment_client: LLM 클라이언트 (enrich=True일 때 필요)
 
     Returns:
         생성된 파일 경로
@@ -875,16 +729,6 @@ def prepare_document(
         "prepared_at": datetime.now().isoformat(),
     }
 
-    # LLM enrichment (optional)
-    if enrich and enrichment_client:
-        enriched = enrich_with_llm(original_content, enrichment_client)
-        if enriched:
-            metadata.update(enriched)
-            # Merge LLM keywords with extracted keywords
-            if enriched.get("llm_keywords"):
-                all_keywords = list(set(keywords + enriched["llm_keywords"]))
-                metadata["keywords"] = all_keywords[:15]  # Keep top 15
-
     # 출력 경로 결정 (항상 .md 확장자)
     if output_path is None:
         output_path = OUTPUT_DIR / input_path.with_suffix('.md').name
@@ -903,7 +747,6 @@ def prepare_document(
 def process_all_documents(
     input_dir: Path = INPUT_DIR,
     output_dir: Path = OUTPUT_DIR,
-    enrich: bool = False,
 ) -> list[Path]:
     """
     모든 입력 문서 처리 (다양한 형식 지원)
@@ -911,24 +754,12 @@ def process_all_documents(
     Args:
         input_dir: 입력 디렉터리
         output_dir: 출력 디렉터리
-        enrich: LLM을 사용한 메타데이터 향상 여부
 
     Returns:
         생성된 파일 경로 리스트
     """
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
-
-    # Get enrichment client if needed
-    enrichment_client = None
-    if enrich:
-        enrichment_client = get_enrichment_client()
-        if enrichment_client:
-            model = os.getenv("ENRICHMENT_MODEL", "gpt-4.1")
-            print(f"🤖 LLM enrichment 활성화: {model}")
-        else:
-            print("⚠️ LLM enrichment 설정 누락 (ENRICHMENT_ENDPOINT, ENRICHMENT_API_KEY)")
-            print("   환경변수를 설정하거나 --enrich 옵션을 제거하세요.")
 
     if not input_dir.exists():
         print(f"⚠️ 입력 디렉터리가 없습니다: {input_dir}")
@@ -963,12 +794,7 @@ def process_all_documents(
 
         try:
             output_path = output_dir / file_path.with_suffix('.md').name
-            result = prepare_document(
-                file_path,
-                output_path,
-                enrich=enrich,
-                enrichment_client=enrichment_client,
-            )
+            result = prepare_document(file_path, output_path)
 
             # 결과 확인
             content = result.read_text(encoding="utf-8")
@@ -980,8 +806,6 @@ def process_all_documents(
                     print(f"   • 도메인: {meta.get('domain', 'N/A')}")
                     print(f"   • 원본 형식: {meta.get('source_format', 'N/A')}")
                     print(f"   • 키워드: {', '.join(meta.get('keywords', [])[:5])}")
-                    if meta.get("enriched_with"):
-                        print(f"   • LLM: {meta.get('enriched_with')}")
                     print(f"   ✅ 저장: {result.name}")
 
             results.append(result)
@@ -1017,18 +841,12 @@ def main() -> int:
         default=OUTPUT_DIR,
         help=f"출력 디렉터리 (기본값: {OUTPUT_DIR})",
     )
-    parser.add_argument(
-        "--enrich",
-        action="store_true",
-        help="LLM을 사용하여 메타데이터 향상 (Microsoft Foundry GPT-4.1)",
-    )
     
     args = parser.parse_args()
     
     results = process_all_documents(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        enrich=args.enrich,
     )
     
     return 0 if results else 1

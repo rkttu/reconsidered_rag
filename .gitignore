@@ -16,6 +16,7 @@ wheels/
 !.gitkeep
 !input_docs/.gitkeep
 !prepared_contents/.gitkeep
+!enriched_contents/.gitkeep
 !chunked_data/.gitkeep
 !vector_db/.gitkeep
 !cache/.gitkeep
@@ -23,6 +24,7 @@ wheels/
 # Ignore directories but keep .gitkeep files
 input_docs/
 prepared_contents/
+enriched_contents/
 chunked_data/
 vector_db/
 cache/
