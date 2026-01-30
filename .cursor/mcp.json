@@ -2,7 +2,7 @@
   "mcpServers": {
     "aipack-vector-search": {
       "command": "uv",
-      "args": ["run", "python", "05_mcp_server.py"],
+      "args": ["run", "python", "05_build_mcp_server.py"],
       "cwd": "${workspaceFolder}"
     }
   }

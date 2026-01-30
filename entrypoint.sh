@@ -34,8 +34,8 @@ fi
 echo "🌐 Starting MCP server..."
 if [ "$1" = "sse" ]; then
     echo "   Mode: SSE on port ${PORT:-8080}"
-    exec python 05_mcp_server.py --sse --host 0.0.0.0 --port ${PORT:-8080}
+    exec python 05_build_mcp_server.py --sse --host 0.0.0.0 --port ${PORT:-8080}
 else
     echo "   Mode: stdio"
-    exec python 05_mcp_server.py
+    exec python 05_build_mcp_server.py
 fi

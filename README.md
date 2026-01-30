@@ -15,16 +15,27 @@ English | **[한국어](README.ko.md)**
 
 ## What this project does
 
-```text
-[Offline Preparation]                  [Online Serving]
-─────────────────────                  ─────────────────
-Documents (PDF, DOCX, ...)             Milvus
-        ↓                              Qdrant
-Markdown + Metadata                    Pinecone
-        ↓                              Chroma
-Semantic Chunking                      or sqlite-vec as-is
-        ↓
-   Parquet files  ─────────────────→   Port to any environment
+```mermaid
+flowchart LR
+    subgraph offline["Offline Preparation"]
+        A[Documents<br/>PDF, DOCX, ...] --> B[Markdown<br/>+ Metadata]
+        B --> C[Semantic<br/>Chunking]
+        C --> D[Parquet<br/>Files]
+    end
+    
+    subgraph online["Online Serving"]
+        E[Milvus]
+        F[Qdrant]
+        G[Pinecone]
+        H[Chroma]
+        I[sqlite-vec]
+    end
+    
+    D -->|Port to any environment| E
+    D --> F
+    D --> G
+    D --> H
+    D --> I
 ```
 
 **Core values:**
@@ -56,9 +67,25 @@ Semantic Chunking                      or sqlite-vec as-is
 | 2 | `02_prepare_content.py` | Documents (input_docs/) | Markdown (prepared_contents/) |
 | 3 | `03_semantic_chunking.py` | Markdown | Chunk parquet (chunked_data/) |
 | 4 | `04_build_vector_db.py` | Chunk parquet | Vector DB (vector_db/) |
-| 5 | `05_mcp_server.py` | Vector DB | MCP server (for testing) |
+| 5 | `05_build_mcp_server.py` | Vector DB | MCP server (for testing) |
 
 **All intermediate results are saved as parquet.** You can export from any step and migrate to another system.
+
+---
+
+## Two Human-Readable Checkpoints
+
+### 1. `prepared_contents/` — Editable Markdown
+
+- **Auto-enriched**: OCR, image descriptions, speech-to-text via Azure AI
+- **Human-editable**: Fix OCR errors, add context, remove noise
+- **Version-controllable**: Plain text format works with Git
+
+### 2. `chunked_data/` — Portable Parquet
+
+- **Chunk text preserved**: Original text for re-embedding anytime
+- **Structure info**: `section_path`, `heading_level`, `element_type`
+- **Table metadata**: `table_headers`, `table_row_count`
 
 ---
 
@@ -99,7 +126,7 @@ uv run python 03_semantic_chunking.py
 uv run python 04_build_vector_db.py --export-parquet
 
 # 5. (Optional) Test with MCP server
-uv run python 05_mcp_server.py
+uv run python 05_build_mcp_server.py
 ```
 
 ---

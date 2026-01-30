@@ -1,5 +1,5 @@
 """
-05_mcp_server.py
+05_build_mcp_server.py
 MCP server utilizing sqlite-vec database from vector_db
 
 Supported features:
@@ -9,8 +9,8 @@ Supported features:
 - Statistics lookup (get_stats)
 
 Execution methods:
-- stdio mode: python 05_mcp_server.py
-- SSE mode: python 05_mcp_server.py --sse --port 8080
+- stdio mode: python 05_build_mcp_server.py
+- SSE mode: python 05_build_mcp_server.py --sse --port 8080
 """
 
 import sys
