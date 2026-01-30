@@ -88,7 +88,7 @@ def get_azure_openai_client() -> Optional[Any]:
         return None
 
     try:
-        from openai import AzureOpenAI
+        from openai import AzureOpenAI  # type: ignore[import-untyped]
 
         return AzureOpenAI(
             azure_endpoint=endpoint,

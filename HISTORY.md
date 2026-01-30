@@ -453,7 +453,7 @@ uv run python 02_enrich_content.py --force    # ✅ Re-enrich all
 
 ### The Lesson
 
-**Flexibility > Purity**
+Flexibility > Purity
 
 v0.2.0 was pure but limiting. v0.3.0 keeps the core pure while offering practical extensions:
 

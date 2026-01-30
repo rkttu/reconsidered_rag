@@ -55,7 +55,7 @@ def get_enrichment_client() -> Optional[tuple[str, Any]]:
         return None
     
     try:
-        from openai import AzureOpenAI
+        from openai import AzureOpenAI  # type: ignore[import-untyped]
         
         client = AzureOpenAI(
             azure_endpoint=endpoint,
