@@ -137,6 +137,104 @@ class VectorDBBuilder:
         self.model = LocalEmbeddingModel(self.model_name)
         self.model.initialize()
 
+    def _check_model_compatibility(self) -> tuple[bool, Optional[str], Optional[int]]:
+        """
+        Check if existing DB was created with a different model.
+        
+        Returns:
+            (is_compatible, existing_model_name, existing_dim)
+        """
+        if not self.db_path.exists():
+            return (True, None, None)
+        
+        try:
+            conn = sqlite3.connect(str(self.db_path))
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+            conn.enable_load_extension(False)
+            
+            # Check model_info table
+            cursor = conn.execute(
+                "SELECT model_name, embedding_dim FROM model_info WHERE id = 1"
+            )
+            row = cursor.fetchone()
+            
+            if row is None:
+                conn.close()
+                return (True, None, None)
+            
+            existing_model, existing_dim = row
+            expected_dim = MODEL_CONFIGS.get(self.model_name, 1024)
+            
+            # Also check actual virtual table dimension by querying schema
+            # sqlite-vec virtual tables store dimension info in their schema
+            try:
+                cursor = conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='chunk_vectors'"
+                )
+                schema_row = cursor.fetchone()
+                if schema_row and schema_row[0]:
+                    # Parse dimension from schema like "FLOAT[384]" or "FLOAT[1024]"
+                    import re
+                    match = re.search(r'FLOAT\[(\d+)\]', schema_row[0])
+                    if match:
+                        actual_vtable_dim = int(match.group(1))
+                        if actual_vtable_dim != expected_dim:
+                            conn.close()
+                            return (False, existing_model, actual_vtable_dim)
+            except Exception:
+                pass
+            
+            conn.close()
+            
+            if existing_model == self.model_name and existing_dim == expected_dim:
+                return (True, existing_model, existing_dim)
+            
+            # Different model or dimension
+            if existing_dim != expected_dim:
+                return (False, existing_model, existing_dim)
+            
+            # Same dimension but different model - still incompatible for consistency
+            return (False, existing_model, existing_dim)
+            
+        except Exception:
+            # Table doesn't exist or other error - treat as compatible (new DB)
+            return (True, None, None)
+
+    def _prompt_rebuild(self, existing_model: str, existing_dim: int) -> bool:
+        """
+        Prompt user to confirm DB rebuild due to model change.
+        
+        Returns:
+            True if user confirms rebuild, False otherwise
+        """
+        expected_dim = MODEL_CONFIGS.get(self.model_name, 1024)
+        
+        print("\n" + "=" * 50)
+        print("⚠️  MODEL MISMATCH DETECTED")
+        print("=" * 50)
+        print(f"   Existing DB model: {existing_model} (dim={existing_dim})")
+        print(f"   Requested model:   {self.model_name} (dim={expected_dim})")
+        print("")
+        print("   The vector database was created with a different embedding model.")
+        print("   To use the new model, the existing database must be deleted.")
+        print("")
+        
+        while True:
+            response = input("   Delete and rebuild? [y/N]: ").strip().lower()
+            if response in ("", "n", "no"):
+                return False
+            elif response in ("y", "yes"):
+                return True
+            else:
+                print("   Please enter 'y' or 'n'.")
+
+    def _delete_db(self) -> None:
+        """Delete existing database file"""
+        if self.db_path.exists():
+            self.db_path.unlink()
+            print(f"   🗑️  Deleted: {self.db_path}")
+
     def _init_db(self) -> None:
         """Initialize sqlite-vec database"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -225,12 +323,13 @@ class VectorDBBuilder:
         """Convert numpy vector to sqlite-vec bytes"""
         return struct.pack(f"{len(vec)}f", *vec)
 
-    def build(self, input_dir: Path = INPUT_DIR) -> dict:
+    def build(self, input_dir: Path = INPUT_DIR, force: bool = False) -> dict:
         """
         Build vector database
 
         Args:
             input_dir: Directory containing chunked parquet files
+            force: If True, skip confirmation prompt for model mismatch
 
         Returns:
             Build statistics
@@ -245,6 +344,22 @@ class VectorDBBuilder:
         if not parquet_files:
             print(f"⚠️ No parquet files found: {input_dir}")
             return {"error": "No parquet files found"}
+
+        # Check model compatibility before loading model
+        is_compatible, existing_model, existing_dim = self._check_model_compatibility()
+        
+        if not is_compatible:
+            if existing_model and existing_dim:
+                if force:
+                    print(f"\n⚠️  Model mismatch: {existing_model} → {self.model_name}")
+                    print("   --force specified, rebuilding database...")
+                    self._delete_db()
+                else:
+                    if self._prompt_rebuild(existing_model, existing_dim):
+                        self._delete_db()
+                    else:
+                        print("\n❌ Build cancelled. Use the same model or --force to rebuild.")
+                        return {"error": "Model mismatch", "cancelled": True}
 
         print(f"\n📦 Building vector DB")
         print(f"   Model: {self.model_name}")
@@ -522,6 +637,11 @@ def main():
         help=f"Embedding model name (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force rebuild if model mismatch (skip confirmation)",
+    )
+    parser.add_argument(
         "--export-parquet",
         action="store_true",
         help="Export Milvus/Qdrant compatible parquet file",
@@ -553,7 +673,7 @@ def main():
 
     try:
         # Build
-        stats = builder.build(args.input_dir)
+        stats = builder.build(args.input_dir, force=args.force)
 
         if "error" in stats:
             return 1
