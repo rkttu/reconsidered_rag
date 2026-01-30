@@ -6,335 +6,182 @@
 
 **[English](README.md)** | 한국어
 
-[![데모 보기](https://img.youtube.com/vi/Uj6Vz5CZ4c4/maxresdefault.jpg)](https://youtu.be/Uj6Vz5CZ4c4)
-
-**RAG를 위한 문서 준비: 오프라인, 이식 가능, 인프라 독립적.**
+**Any Data → Markdown → Parquet: RAG 준비 완료, 오프라인, 이식 가능.**
 
 ---
 
 ## 핵심 요약
 
-> **이것은 빠른 RAG DB 빌더가 아닙니다.**
-> **이것은 데이터를 소유하고 싶은 사람들을 위한 도구입니다.**
+> **빠른 RAG DB 빌더가 아닙니다.**
+> **데이터를 소유하고 싶은 사람들을 위한 RAG 도구 상자입니다.**
 >
-> 빠른 RAG 구축을 원한다면 LangChain이나 LlamaIndex를 사용하세요.
-> **데이터 주권**과 **벤더 종속 방지**를 원한다면 계속 읽어보세요.
+> 빠른 RAG 구축을 원한다면 LangChain이나 LlamaIndex가 정답입니다.
+> **데이터 주권**과 **벤더 종속 방지**를 원한다면 잘 오셨습니다.
 
 ---
 
-## 누구를 위한 프로젝트인가?
+## 누구를 위한 프로젝트?
 
-| 원하는 것 | 이 프로젝트는... |
-| --------- | --------------- |
-| 5분 안에 RAG 구축 | ❌ 맞지 않음 |
-| 특정 임베딩 모델 고정 | ❌ 맞지 않음 |
-| 블랙박스 파이프라인 | ❌ 맞지 않음 |
-| **이식 가능한 포맷으로 데이터 소유** | ✅ 적합 |
-| **사람이 읽을 수 있는 체크포인트** | ✅ 적합 |
-| **언제든 다른 모델로 재임베딩** | ✅ 적합 |
-| **어떤 벡터 DB로든 마이그레이션** | ✅ 적합 |
+| ❌ 맞지 않는 경우 | ✅ 맞는 경우 |
+| --------------- | ----------- |
+| 5분 안에 RAG 구축 원함 | 이식 가능한 포맷으로 **데이터 소유** 원함 |
+| 벤더 종속 괜찮음 | **언제든 재임베딩** 가능해야 함 |
+| 블랙박스 파이프라인 선호 | **사람이 읽을 수 있는 체크포인트** 필요 |
 
 ---
 
 ## 세 가지 사용 사례
 
-### 💰 인프라 투자가 어려운 곳
-
-**GPU 없음. 클라우드 없음. 비싼 구독 없음.**
-
-- 코어 파이프라인은 모든 노트북에서 오프라인 실행
-- ~200MB 설치 (임베딩 포함 도구의 2GB+ 대비)
-- 준비되었을 때만 임베딩/벡터 DB 비용 지불
-
-### 🔐 데이터 주권이 중요한 곳
-
-**데이터가 절대 내 머신을 떠나지 않습니다.**
-
-- 모든 처리가 로컬에서 수행
-- 영원히 통제할 수 있는 이식 가능한 포맷 (Markdown, Parquet)
-- 벤더 종속 없음 — 언제든 임베딩 모델이나 벡터 DB 변경 가능
-- 버전 관리와 감사를 위한 Git 친화적 체크포인트
-
-### ⚡ 빠른 시작, 완전한 통제
-
-**2개 명령으로 시작. 어떤 클라우드나 로컬 모델과도 통합 가능.**
-
-```bash
-uv sync
-uv run python main.py run
-```
-
-그 다음 원하는 스택 선택:
-
-| 컴포넌트 | 선택지 |
-| -------- | ------ |
-| **임베딩** | OpenAI, Azure OpenAI, Cohere, Voyage, Google, AWS Bedrock, 로컬 ONNX |
-| **벡터 DB** | Pinecone, Qdrant, Milvus, Chroma, Weaviate, Azure AI Search, pgvector |
-| **LLM** | GPT-4, Claude, Gemini, Llama, Mistral, 또는 MCP 호환 클라이언트 |
-
-**CSP 종속 없음.** Parquet 출력은 모든 서비스와 호환됩니다.
-
-```python
-# 예시: Azure OpenAI
-from openai import AzureOpenAI
-client = AzureOpenAI(azure_endpoint="...", api_key="...")
-embeddings = client.embeddings.create(model="text-embedding-3-large", input=texts)
-
-# 예시: AWS Bedrock
-import boto3
-client = boto3.client("bedrock-runtime")
-response = client.invoke_model(modelId="amazon.titan-embed-text-v2:0", body=...)
-
-# 예시: 로컬 ONNX
-from sentence_transformers import SentenceTransformer
-model = SentenceTransformer("BAAI/bge-m3")
-embeddings = model.encode(texts)
-```
-
----
-
-## 이 프로젝트가 하는 일
-
-```mermaid
-flowchart LR
-    subgraph this["이 프로젝트"]
-        A[문서<br/>PDF, DOCX, ...] --> B[Markdown<br/>+ 메타데이터]
-        B --> C[구조 기반<br/>청킹]
-        C --> D[Parquet<br/>텍스트만]
-    end
-    
-    subgraph yours["당신의 선택"]
-        E[OpenAI Embeddings]
-        F[Cohere Embed]
-        G[로컬 ONNX 모델]
-        H[기타 임베딩 API]
-    end
-    
-    subgraph vectordb["벡터 DB"]
-        I[Pinecone]
-        J[Qdrant]
-        K[Milvus]
-        L[Chroma]
-    end
-    
-    D --> E
-    D --> F
-    D --> G
-    D --> H
-    E --> I
-    F --> J
-    G --> K
-    H --> L
-```
-
-**이 프로젝트가 하는 일:**
-
-- ✅ 문서를 Markdown으로 변환
-- ✅ 구조 기반 청킹 (헤딩, 문단)
-- ✅ Parquet으로 내보내기 (텍스트만)
-
-**당신이 할 일:**
-
-- 임베딩 모델 선택
-- 벡터 DB 선택
-- 프로덕션 서빙
-
----
-
-## 왜 이 방식인가?
-
-| 문제 | 우리의 해결책 |
-| ---- | ------------ |
-| 임베딩 모델이 빠르게 바뀜 | 텍스트가 Parquet에 있으니 언제든 재임베딩 |
-| 벡터 DB를 결정 못함 | 한 번 준비하고 어디든 가져오기 |
-| 데이터가 로컬을 떠날 수 없음 | 모든 것이 오프라인 실행 |
-| 콘텐츠 감사/검토 필요 | 사람이 읽을 수 있는 Markdown 체크포인트 |
-
----
-
-## 파이프라인
-
-| 단계 | 스크립트 | 입력 | 출력 |
-| ---- | -------- | ---- | ---- |
-| 1a | `01_prepare_markdowndocs.py` | Markdown, TXT, RST | Markdown (prepared_contents/) |
-| 1b | `01_prepare_officedocs.py` | DOCX, XLSX, PPTX, PDF 등 | Markdown (prepared_contents/) |
-| 2 | `02_enrich_content.py` | Markdown | 보강된 Markdown (enriched_contents/) |
-| 3 | `03_chunk_content.py` | Markdown | 청크 Parquet (chunked_data/) |
-
-**여러 `01_prepare_*` 스크립트가 공존 가능**합니다:
-- `01_prepare_markdowndocs.py` — 이미 텍스트 기반 (패스스루 + 메타데이터)
-- `01_prepare_officedocs.py` — 변환이 필요한 바이너리 형식
-- `01_prepare_discourse.py` — (향후) PostgreSQL 포럼 덤프
-- `01_prepare_github.py` — (향후) GitHub 이슈/PR
-
-모두 Markdown 출력 → 동일한 `02_enrich` → `03_chunk` 파이프라인.
-
----
-
-## 응용 예시
-
-Parquet 출력물은 어떤 임베딩 모델과 벡터 DB와도 사용 가능합니다.
-이 저장소에는 참조 구현이 포함되어 있습니다:
-
-| 예시 | 설명 |
-| ---- | ---- |
-| `example_sqlitevec_mcp.py` | sqlite-vec + MCP 서버로 로컬 테스트 |
-
----
-
-## 두 개의 사람이 읽을 수 있는 체크포인트
-
-### 1. `prepared_contents/` — 편집 가능한 Markdown
-
-- **자동 보강**: OCR, 이미지 설명, 음성-텍스트 (선택적, Azure AI 사용)
-- **사람이 편집 가능**: 오류 수정, 맥락 추가, 노이즈 제거
-- **버전 관리 가능**: 일반 텍스트는 Git과 호환
-
-### 2. `chunked_data/` — 이식 가능한 Parquet
-
-- **청크 텍스트 보존**: 어떤 모델로든 임베딩할 원본 텍스트
-- **구조 정보**: `section_path`, `heading_level`, `element_type`
-- **테이블 메타데이터**: `table_headers`, `table_row_count`
+| 💰 인프라 부족 | 🔐 데이터 주권 | ⚡ 빠른 시작 + 통제 |
+| ------------- | ------------- | ----------------- |
+| GPU 없음, 클라우드 없음 | 데이터가 내 머신을 떠나지 않음 | 2개 명령으로 시작 |
+| ~200MB 설치 | 이식 가능한 포맷 (MD, Parquet) | 어떤 체크포인트든 편집 |
+| 준비되면 나중에 비용 지불 | Git 친화적, 감사 가능 | 어떤 CSP, 어떤 모델이든 |
 
 ---
 
 ## 빠른 시작
 
-### Fast Path (2개 명령)
-
 ```bash
 uv sync
 uv run python main.py run
 ```
 
-끝입니다. 문서가 `chunked_data/*.parquet`에 준비되었습니다.
+끝. `chunked_data/*.parquet` 확인.
 
-### LLM 보강 포함
+<details>
+<summary><b>LLM 보강 포함</b></summary>
 
 ```bash
 uv run python main.py run --enrich
 ```
+</details>
 
-### 단계별 실행 (고급 사용자)
+<details>
+<summary><b>단계별 실행 (고급)</b></summary>
 
 ```bash
-# 1. 문서 준비 (input_docs/에 파일 넣기)
-uv run python main.py prepare
+uv run python main.py prepare   # 1. 문서 → Markdown
+uv run python main.py enrich    # 2. LLM 보강 (선택)
+uv run python main.py chunk     # 3. Markdown → Parquet
+```
+</details>
 
-# 2. LLM 보강 (선택적, Azure OpenAI 필요)
-uv run python main.py enrich
+---
 
-# 3. 구조 기반 청킹
-uv run python main.py chunk
+## 작동 방식
 
-# 완료! chunked_data/*.parquet 확인
+```text
+모든 데이터 소스       →    MARKDOWN    →    PARQUET (텍스트만)
+────────────────────────────────────────────────────────────────
+파일 (PDF, DOCX...)        구조화됨        → 어떤 임베딩 모델이든
+DB (PostgreSQL...)         사람이 읽음     → 어떤 벡터 DB든
+API (GitHub, Slack...)     Git 친화적     → BM25, 하이브리드, 리랭킹
+웹 (Discourse, Wiki...)    편집 가능      → 파인튜닝 데이터
 ```
 
-### Parquet 파일 사용하기
+**우리는 "R" (Retrieval-ready)을 제공. "AG" (Augmented Generation)는 당신이 결정.**
+
+---
+
+## 파이프라인
+
+| 단계 | 스크립트 | 역할 |
+| ---- | -------- | ---- |
+| 1a | `01_prepare_markdowndocs.py` | MD/TXT/RST → Markdown |
+| 1b | `01_prepare_officedocs.py` | Office/PDF/미디어 → Markdown |
+| 2 | `02_enrich_content.py` | LLM 보강 (선택) |
+| 3 | `03_chunk_content.py` | 구조 기반 청킹 → Parquet |
+
+<details>
+<summary><b>확장: 데이터 소스 추가</b></summary>
+
+| 예정 스크립트 | 데이터 소스 |
+| ------------ | ----------- |
+| `01_prepare_discourse.py` | PostgreSQL 포럼 덤프 |
+| `01_prepare_github.py` | GitHub Issues/PR |
+| `01_prepare_slack.py` | Slack 내보내기 |
+| `01_prepare_notion.py` | Notion API |
+| `01_prepare_database.py` | 모든 SQL DB |
+
+모두 Markdown 출력 → 동일한 보강 → 동일한 청킹.
+</details>
+
+---
+
+## Parquet 활용
 
 ```python
 import pandas as pd
-
-# 청크 로드
 df = pd.read_parquet("chunked_data/your_document.parquet")
-
-# 임베딩할 텍스트 추출
 texts = df["chunk_text"].tolist()
 
-# 원하는 임베딩 모델 사용
-from openai import OpenAI
-client = OpenAI()
-embeddings = client.embeddings.create(
-    model="text-embedding-3-large",
-    input=texts
-).data
-
-# 원하는 벡터 DB에 삽입
-# ... 여기에 코드 작성
+# 그 다음: OpenAI, Cohere, AWS Bedrock, 로컬 ONNX — 당신의 선택
+# 그 다음: Pinecone, Qdrant, Milvus, Elasticsearch — 당신의 선택
 ```
 
----
-
-## 지원 파일 포맷
-
-| 카테고리 | 확장자 |
-| -------- | ------ |
-| 오피스 | `.docx`, `.xlsx`, `.pptx` 등 |
-| PDF/웹 | `.pdf`, `.html`, `.xml`, `.json`, `.csv` |
-| Markdown/텍스트 | `.md`, `.txt`, `.rst` |
-| 이미지 (EXIF/OCR) | `.jpg`, `.png`, `.webp` 등 |
-| 오디오 (음성-텍스트) | `.mp3`, `.wav`, `.m4a` 등 |
-| 비디오 (자막 추출) | `.mp4`, `.mkv`, `.avi` 등 |
-| 코드 | `.py`, `.js`, `.ts`, `.java` 등 |
+| 접근 방식 | 호환 |
+| -------- | ---- |
+| 벡터 RAG | 어떤 임베딩 → 어떤 벡터 DB |
+| BM25 / 키워드 | Elasticsearch, Typesense, Meilisearch |
+| 하이브리드 검색 | 벡터 + BM25 결합 |
+| 리랭킹 | Cohere, BGE-Reranker |
+| 분석 | DuckDB, Polars |
 
 ---
 
-## 청킹 전략
+## 두 개의 체크포인트
 
-**구조 기반 청킹**은 문서 구조를 존중합니다:
+| `prepared_contents/` | `chunked_data/` |
+| -------------------- | --------------- |
+| 편집 가능한 Markdown | 이식 가능한 Parquet |
+| OCR 오류 수정, 맥락 추가 | 텍스트 청크 + 구조 메타데이터 |
+| Git 친화적 | 어떤 임베딩이든 준비됨 |
 
-1. **헤딩 경계**: 각 헤딩이 새 청크를 시작
-2. **테이블/코드/리스트**: 가능하면 그대로 유지
-3. **큰 문단**: 문장 경계에서 오버랩과 함께 분할
-4. **크기 설정 가능**: `--max-chunk-size`, `--min-chunk-size`
+---
+
+## 선택: 로컬 벡터 DB + MCP
 
 ```bash
-# 커스텀 청크 크기
-uv run python 02_chunk_content.py --max-chunk-size 1500 --min-chunk-size 50
-```
-
----
-
-## 선택 사항: 벡터 DB & MCP 서버
-
-sqlite-vec로 로컬 테스트를 원한다면:
-
-```bash
-# 선택적 의존성 설치
-uv sync --extra vectordb
-uv sync --extra mcp
-
-# 벡터 DB 빌드 (BGE-M3 기본)
-uv run python example_sqlitevec_mcp.py build
-
-# 다른 임베딩 모델 사용
-uv run python example_sqlitevec_mcp.py build --model intfloat/multilingual-e5-large
-
-# 지원 모델 목록
-uv run python example_sqlitevec_mcp.py --list-models
-
-# MCP 서버 실행 (stdio 모드)
-uv run python example_sqlitevec_mcp.py serve
-
-# SSE 모드
-uv run python example_sqlitevec_mcp.py serve --sse --port 8080
-
-# 빌드 + 서버 한 번에
+uv sync --extra vectordb --extra mcp
 uv run python example_sqlitevec_mcp.py all
 ```
 
+<details>
+<summary><b>추가 옵션</b></summary>
+
+```bash
+# 다른 모델로 빌드
+uv run python example_sqlitevec_mcp.py build --model intfloat/multilingual-e5-large
+
+# MCP 서버 실행 (SSE 모드)
+uv run python example_sqlitevec_mcp.py serve --sse --port 8080
+```
+</details>
+
 ---
 
-## 상세 문서
+## 지원 포맷
 
-설치, 설정, Docker, IDE 연동 등에 대해서는 **[IMPLEMENTATION.md](IMPLEMENTATION.md)**를 참고하세요.
+**오피스**: DOCX, XLSX, PPTX | **PDF/웹**: PDF, HTML, JSON, CSV | **텍스트**: MD, TXT, RST
+**이미지**: JPG, PNG (OCR) | **오디오**: MP3, WAV (STT) | **비디오**: MP4, MKV (자막) | **코드**: PY, JS, TS 등
 
 ---
 
-## 라이선스
+## 문서
 
-[Apache License 2.0](LICENSE)
+설치, 설정, Docker, IDE 연동은 **[IMPLEMENTATION.md](IMPLEMENTATION.md)** 참고.
 
-## 후원
+---
 
-이 프로젝트가 도움이 되셨다면, GitHub Sponsors에서 후원을 고려해 주세요.
+## 라이선스 & 기여
+
+[Apache License 2.0](LICENSE) | [기여 가이드](#기여)
 
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/rkttu)](https://github.com/sponsors/rkttu)
 
-## 기여하기
+<details>
+<summary><b>기여</b></summary>
 
-1. 이 저장소를 포크하세요
-2. 브랜치를 생성하세요: `git checkout -b feature/amazing-feature`
-3. 커밋하세요: `git commit -m 'Add amazing feature'`
-4. 푸시하세요: `git push origin feature/amazing-feature`
-5. Pull Request를 생성하세요
+1. Fork → 2. Branch → 3. Commit → 4. Push → 5. PR
+</details>
