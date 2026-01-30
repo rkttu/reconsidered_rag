@@ -31,7 +31,7 @@ flowchart TD
     end
     
     subgraph "Serving"
-        F[05_build_mcp_server.py<br/>MCP server<br/>Vector search + reranking]
+        F[05_mcp_server.py<br/>MCP server<br/>Vector search + reranking]
     end
     
     A --> B
@@ -116,7 +116,7 @@ They should not be interpreted as a recommended or complete RAG feature set.
 | `02_prepare_content.py` | Metadata extraction and YAML front matter generation |
 | `03_semantic_chunking.py` | Semantic chunking and parquet storage |
 | `04_build_vector_db.py` | sqlite-vec vector DB build and search |
-| `05_build_mcp_server.py` | MCP server (stdio/SSE mode support) |
+| `05_mcp_server.py` | MCP server (stdio/SSE mode support) |
 | `embedding_model.py` | Unified embedding interface (ONNX/PyTorch) |
 
 ---
@@ -359,13 +359,13 @@ Provides vector search via MCP protocol.
 #### stdio Mode (Claude Desktop, Cursor, etc.)
 
 ```bash
-python 05_build_mcp_server.py
+python 05_mcp_server.py
 ```
 
 #### SSE Mode (Web clients)
 
 ```bash
-python 05_build_mcp_server.py --sse --port 8080
+python 05_mcp_server.py --sse --port 8080
 ```
 
 Options:
@@ -393,7 +393,7 @@ Options:
   "mcpServers": {
     "aipack-vector-search": {
       "command": "python",
-      "args": ["D:/Projects/aipack/05_build_mcp_server.py"]
+      "args": ["D:/Projects/aipack/05_mcp_server.py"]
     }
   }
 }
@@ -445,7 +445,7 @@ This repository includes pre-configured MCP settings for VS Code and Cursor. Sim
     "aipack-vector-search": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "python", "05_build_mcp_server.py"],
+      "args": ["run", "python", "05_mcp_server.py"],
       "cwd": "${workspaceFolder}"
     }
   }
@@ -459,7 +459,7 @@ This repository includes pre-configured MCP settings for VS Code and Cursor. Sim
   "mcpServers": {
     "aipack-vector-search": {
       "command": "uv",
-      "args": ["run", "python", "05_build_mcp_server.py"],
+      "args": ["run", "python", "05_mcp_server.py"],
       "cwd": "${workspaceFolder}"
     }
   }
@@ -505,7 +505,7 @@ reconsidered_rag/
 ├── 02_prepare_content.py      # Metadata extraction + Azure integration
 ├── 03_semantic_chunking.py    # Semantic chunking
 ├── 04_build_vector_db.py      # Vector DB build
-├── 05_build_mcp_server.py     # MCP server (stdio/SSE)
+├── 05_mcp_server.py     # MCP server (stdio/SSE)
 ├── embedding_model.py         # Unified embedding interface
 ├── input_docs/                # Input documents
 ├── prepared_contents/         # Documents with metadata added

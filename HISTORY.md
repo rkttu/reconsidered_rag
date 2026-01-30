@@ -153,7 +153,7 @@ I don't need complex chunking strategies. I need good document structure.
 
 - `02_prepare_content.py` → `01_prepare_content.py`
 - `04_build_vector_db.py` → `03_build_vector_db.py`
-- `05_build_mcp_server.py` → `04_build_mcp_server.py`
+- `05_mcp_server.py` → `05_mcp_server.py`
 
 ### New Pipeline
 
@@ -312,14 +312,14 @@ Supported models:
 
 #### 3. MCP Server Restored
 
-`04_mcp_server.py` provides a complete RAG testing environment:
+`05_mcp_server.py` provides a complete RAG testing environment:
 
 ```bash
 # stdio mode (for Claude Desktop, etc.)
-uv run python 04_mcp_server.py
+uv run python 05_mcp_server.py
 
 # SSE mode (for HTTP clients)
-uv run python 04_mcp_server.py --sse --port 8080
+uv run python 05_mcp_server.py --sse --port 8080
 ```
 
 Available tools:
@@ -356,7 +356,7 @@ Documents ──┬──────────▶│ 01_prepare_content.py �
             │           └─────────────────────────────────────┘
             │
             │           ┌─────────────────────────────────────┐
-            └───[mcp]──▶│ 04_mcp_server.py                    │──▶ MCP Protocol
+            └───[mcp]──▶│ 05_mcp_server.py                    │──▶ MCP Protocol
                         │ • search, get_chunk, list_documents │    (stdio/SSE)
                         └─────────────────────────────────────┘
 ```

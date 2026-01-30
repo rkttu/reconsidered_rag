@@ -1,5 +1,5 @@
 """
-04_mcp_server.py
+05_mcp_server.py
 MCP Server with Mini RAG using sqlite-vec vector database
 
 Features:
@@ -9,8 +9,8 @@ Features:
 - Mini RAG: answer questions using retrieved context
 
 Supported modes:
-- stdio: python 04_mcp_server.py
-- SSE: python 04_mcp_server.py --sse --port 8080
+- stdio: python 05_mcp_server.py
+- SSE: python 05_mcp_server.py --sse --port 8080
 """
 
 import sys
@@ -527,9 +527,9 @@ def create_mcp_server(db_path: Path = DEFAULT_DB_PATH, preload: bool = True) -> 
 # Server Execution
 # =============================================================================
 
-async def run_stdio_server(db_path: Path) -> None:
+async def run_stdio_server(db_path: Path, preload: bool = True) -> None:
     """Run server in stdio mode"""
-    server = create_mcp_server(db_path)
+    server = create_mcp_server(db_path, preload=preload)
 
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
@@ -539,14 +539,14 @@ async def run_stdio_server(db_path: Path) -> None:
         )
 
 
-async def run_sse_server(db_path: Path, host: str, port: int) -> None:
+async def run_sse_server(db_path: Path, host: str, port: int, preload: bool = True) -> None:
     """Run server in SSE mode"""
     from starlette.applications import Starlette
     from starlette.routing import Route
     from starlette.responses import JSONResponse
     import uvicorn
 
-    server = create_mcp_server(db_path)
+    server = create_mcp_server(db_path, preload=preload)
     sse_transport = SseServerTransport("/messages/")
 
     async def handle_sse(request):
@@ -626,10 +626,12 @@ def main():
 
     args = parser.parse_args()
 
+    preload = not args.no_preload
+
     if args.sse:
-        asyncio.run(run_sse_server(args.db_path, args.host, args.port))
+        asyncio.run(run_sse_server(args.db_path, args.host, args.port, preload))
     else:
-        asyncio.run(run_stdio_server(args.db_path))
+        asyncio.run(run_stdio_server(args.db_path, preload))
 
 
 if __name__ == "__main__":

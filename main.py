@@ -81,7 +81,7 @@ def build_vector_db():
 @app.command()
 def mcp_server(sse: bool = typer.Option(False, help="SSE 모드"), port: int = typer.Option(8080, help="서버 포트")):
     """MCP 서버 실행"""
-    mod = _load_module_from_file("05_build_mcp_server.py")
+    mod = _load_module_from_file("05_mcp_server.py")
     if hasattr(mod, "main"):
         # pass CLI args via argv so internal arg parsing (if any) can work
         args = ["--sse"] if sse else ["--port", str(port)]
@@ -94,7 +94,7 @@ def mcp_server(sse: bool = typer.Option(False, help="SSE 모드"), port: int = t
                     fg=typer.colors.RED,
                 )
             raise
-    raise RuntimeError("No main() in 05_build_mcp_server.py")
+    raise RuntimeError("No main() in 05_mcp_server.py")
 
 
 @app.command()

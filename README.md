@@ -215,10 +215,10 @@ uv run python 03_build_vector_db.py --list-models
 uv run python 03_build_vector_db.py --test-search "how to deploy kubernetes"
 
 # Run MCP server for RAG testing
-uv run python 04_mcp_server.py
+uv run python 05_mcp_server.py
 
 # SSE mode for HTTP clients
-uv run python 04_mcp_server.py --sse --port 8080
+uv run python 05_mcp_server.py --sse --port 8080
 ```
 
 Supported embedding models:

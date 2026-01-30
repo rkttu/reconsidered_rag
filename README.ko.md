@@ -183,7 +183,7 @@ uv sync --extra mcp
 uv run python 03_build_vector_db.py
 
 # 테스트용 MCP 서버 실행
-uv run python 04_build_mcp_server.py
+uv run python 05_mcp_server.py
 ```
 
 ---
