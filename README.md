@@ -12,6 +12,87 @@ English | **[한국어](README.ko.md)**
 
 ---
 
+## TL;DR
+
+> **This is NOT a fast RAG DB builder.**
+> **This is a tool for people who want to own their data.**
+>
+> If you want a quick RAG setup, use LangChain or LlamaIndex.
+> If you want **data sovereignty** and **no vendor lock-in**, read on.
+
+---
+
+## Who is this for?
+
+| If you want... | This project is... |
+| -------------- | ------------------ |
+| Quick RAG in 5 minutes | ❌ Not for you |
+| Lock-in to a specific embedding model | ❌ Not for you |
+| Black-box pipeline | ❌ Not for you |
+| **Own your data in portable formats** | ✅ For you |
+| **Human-readable checkpoints** | ✅ For you |
+| **Re-embed anytime with any model** | ✅ For you |
+| **Migrate to any vector DB** | ✅ For you |
+
+---
+
+## Three Use Cases
+
+### 💰 Low Infrastructure Budget
+
+**No GPU. No cloud. No expensive subscriptions.**
+
+- Core pipeline runs on any laptop, offline
+- ~200MB install (vs 2GB+ for embedding-bundled tools)
+- Pay for embedding/vector DB only when you're ready
+
+### 🔐 Data Sovereignty Required
+
+**Your data never leaves your machine.**
+
+- All processing happens locally
+- Portable formats (Markdown, Parquet) you control forever
+- No vendor lock-in — switch embedding models or vector DBs anytime
+- Git-friendly checkpoints for version control and audit
+
+### ⚡ Fast Start, Full Control
+
+**2 commands to get started. Integrate with any cloud or local model.**
+
+```bash
+uv sync
+uv run python main.py run
+```
+
+Then choose YOUR stack:
+
+| Component | Your Options |
+| --------- | ------------ |
+| **Embedding** | OpenAI, Azure OpenAI, Cohere, Voyage, Google, AWS Bedrock, local ONNX |
+| **Vector DB** | Pinecone, Qdrant, Milvus, Chroma, Weaviate, Azure AI Search, pgvector |
+| **LLM** | GPT-4, Claude, Gemini, Llama, Mistral, or any MCP-compatible client |
+
+**No CSP lock-in.** The Parquet output works with all of them.
+
+```python
+# Example: Azure OpenAI
+from openai import AzureOpenAI
+client = AzureOpenAI(azure_endpoint="...", api_key="...")
+embeddings = client.embeddings.create(model="text-embedding-3-large", input=texts)
+
+# Example: AWS Bedrock
+import boto3
+client = boto3.client("bedrock-runtime")
+response = client.invoke_model(modelId="amazon.titan-embed-text-v2:0", body=...)
+
+# Example: Local ONNX
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer("BAAI/bge-m3")
+embeddings = model.encode(texts)
+```
+
+---
+
 ## What this project does
 
 ```mermaid
@@ -75,34 +156,29 @@ flowchart LR
 
 | Step | Script | Input | Output |
 | ---- | ------ | ----- | ------ |
-| 1 | `01_prepare_content.py` | Documents (input_docs/) | Markdown (prepared_contents/) |
-| 2 | `02_chunk_content.py` | Markdown | Chunk Parquet (chunked_data/) |
+| 1a | `01_prepare_markdowndocs.py` | Markdown, TXT, RST | Markdown (prepared_contents/) |
+| 1b | `01_prepare_officedocs.py` | DOCX, XLSX, PPTX, PDF, etc. | Markdown (prepared_contents/) |
+| 2 | `02_enrich_content.py` | Markdown | Enriched Markdown (enriched_contents/) |
+| 3 | `03_chunk_content.py` | Markdown | Chunk Parquet (chunked_data/) |
 
-**That's it. 2 steps.**
+**Multiple `01_prepare_*` scripts can coexist** for different data sources:
+- `01_prepare_markdowndocs.py` — Already text-based (pass-through + metadata)
+- `01_prepare_officedocs.py` — Binary formats requiring conversion
+- `01_prepare_discourse.py` — (future) PostgreSQL forum dump
+- `01_prepare_github.py` — (future) GitHub Issues/PRs
 
-No embedding model. No vector DB. Just document preparation.
+All produce Markdown → same `02_enrich` → `03_chunk` pipeline.
 
-### Optional: LLM Enrichment
+---
 
-Use Microsoft Foundry GPT-4.1 to enhance metadata:
+## Application Examples
 
-```bash
-# Set environment variables
-export ENRICHMENT_ENDPOINT="https://your-endpoint.inference.ai.azure.com"
-export ENRICHMENT_API_KEY="your-api-key"
-export ENRICHMENT_MODEL="gpt-4.1"
+The Parquet output can be used with any embedding model and vector DB.
+This repository includes one reference implementation:
 
-# Run with enrichment
-uv run python 01_prepare_content.py --enrich
-```
-
-This adds:
-
-- `llm_summary`: AI-generated summary
-- `llm_keywords`: Semantic keywords beyond headings
-- `llm_questions`: Questions this document can answer
-- `llm_entities`: Named entities and concepts
-- `llm_difficulty`: Estimated difficulty level
+| Example | Description |
+| ------- | ----------- |
+| `example_sqlitevec_mcp.py` | sqlite-vec + MCP server for local testing |
 
 ---
 
@@ -124,15 +200,32 @@ This adds:
 
 ## Quick Start
 
+### Fast Path (2 commands)
+
 ```bash
-# Install dependencies (minimal)
 uv sync
+uv run python main.py run
+```
 
+That's it. Your documents are now in `chunked_data/*.parquet`.
+
+### With LLM Enrichment
+
+```bash
+uv run python main.py run --enrich
+```
+
+### Step-by-Step (Power Users)
+
+```bash
 # 1. Prepare documents (put files in input_docs/)
-uv run python 01_prepare_content.py
+uv run python main.py prepare
 
-# 2. Structure-based chunking
-uv run python 02_chunk_content.py
+# 2. Enrich with LLM (optional, requires Azure OpenAI)
+uv run python main.py enrich
+
+# 3. Structure-based chunking
+uv run python main.py chunk
 
 # Done! Check chunked_data/*.parquet
 ```
@@ -202,23 +295,26 @@ uv sync --extra vectordb
 uv sync --extra mcp
 
 # Build vector DB (uses BGE-M3 by default)
-uv run python 03_build_vector_db.py
+uv run python example_sqlitevec_mcp.py build
 
 # Other embedding models available
-uv run python 03_build_vector_db.py --model intfloat/multilingual-e5-large
-uv run python 03_build_vector_db.py --model sentence-transformers/all-MiniLM-L6-v2
+uv run python example_sqlitevec_mcp.py build --model intfloat/multilingual-e5-large
+uv run python example_sqlitevec_mcp.py build --model sentence-transformers/all-MiniLM-L6-v2
 
 # List supported models
-uv run python 03_build_vector_db.py --list-models
+uv run python example_sqlitevec_mcp.py --list-models
 
 # Test search
-uv run python 03_build_vector_db.py --test-search "how to deploy kubernetes"
+uv run python example_sqlitevec_mcp.py build --test-search "how to deploy kubernetes"
 
 # Run MCP server for RAG testing
-uv run python 05_mcp_server.py
+uv run python example_sqlitevec_mcp.py serve
 
 # SSE mode for HTTP clients
-uv run python 05_mcp_server.py --sse --port 8080
+uv run python example_sqlitevec_mcp.py serve --sse --port 8080
+
+# Build and serve in one command
+uv run python example_sqlitevec_mcp.py all
 ```
 
 Supported embedding models:

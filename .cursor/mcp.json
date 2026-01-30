@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "aipack-vector-search": {
+    "reconsidered-rag-search": {
       "command": "uv",
-      "args": ["run", "python", "05_mcp_server.py"],
+      "args": ["run", "python", "example_sqlitevec_mcp.py", "serve"],
       "cwd": "${workspaceFolder}"
     }
   }

@@ -498,4 +498,237 @@ The name remains relevant:
 
 ---
 
+## v0.4.0 — Core vs Example Separation (January 2026)
+
+### The Clarity Pivot
+
+After implementing the 5-step pipeline in v0.3.1, I reconsidered the structure:
+
+> "Steps 1-3 produce the high-quality Parquet file. That's the core value.
+> Steps 4-5 (vector DB + MCP server) are just one way to USE that Parquet."
+
+The numbered steps implied a linear dependency:
+
+```text
+01 → 02 → 03 → 04 → 05  (suggests all 5 are required)
+```
+
+But the reality was:
+
+```text
+01 → 02 → 03 → Parquet (CORE)
+                   ↓
+            [Your choice]
+            ├── sqlite-vec + MCP
+            ├── Chroma
+            ├── Pinecone
+            └── ...
+```
+
+### What Changed in v0.4.0
+
+#### Merged and Renamed
+
+| Before (v0.3.1) | After (v0.4.0) |
+| --------------- | -------------- |
+| `04_build_vector_db.py` | `example_sqlitevec_mcp.py` |
+| `05_mcp_server.py` | (merged into above) |
+
+#### New File Structure
+
+```text
+01_prepare_content.py    ─┐
+02_enrich_content.py      ├─▶ Core Pipeline (produces Parquet)
+03_chunk_content.py      ─┘
+
+example_sqlitevec_mcp.py ◀─ Application Example (one of many possible)
+```
+
+#### Usage Changes
+
+```bash
+# Before (v0.3.1)
+uv run python 04_build_vector_db.py
+uv run python 05_mcp_server.py
+
+# After (v0.4.0)
+uv run python example_sqlitevec_mcp.py build
+uv run python example_sqlitevec_mcp.py serve
+uv run python example_sqlitevec_mcp.py all  # build + serve
+```
+
+### Benefits of Separation
+
+| Aspect | Before | After |
+| ------ | ------ | ----- |
+| Clarity | "5 required steps" | "3 core + examples" |
+| Extensibility | Add step 06, 07? | Add example_chroma.py, etc. |
+| Naming | Implies sequence | Implies choice |
+| Mental model | Pipeline | Core + Plugins |
+
+### The Lesson
+
+**Naming matters for user understanding.**
+
+Numbered files (01, 02, 03, 04, 05) imply a mandatory sequence.
+Naming something `example_*` signals it's optional and replaceable.
+
+The core pipeline:
+- **01_prepare_content.py** — Document → Markdown
+- **02_enrich_content.py** — LLM enrichment (auto-skip if no API key)
+- **03_chunk_content.py** — Structure-based chunking → Parquet
+
+Everything else is an example of what you can DO with that Parquet.
+
+---
+
+## v0.4.1 — Modular Prepare Scripts (January 2026)
+
+### The Specialization Pivot
+
+After separating core pipeline from examples in v0.4.0, I reconsidered Step 1:
+
+> "What if I want to handle Discourse PostgreSQL dumps? Or GitHub Issues?
+> The `01_prepare_content.py` that handles Office docs shouldn't be the same
+> script that parses SQL dumps."
+
+### What Changed in v0.4.1
+
+#### Split 01_prepare_content.py
+
+| Before | After |
+| ------ | ----- |
+| `01_prepare_content.py` | `prepare_utils.py` (shared utilities) |
+| (monolithic) | `01_prepare_markdowndocs.py` (MD, TXT, RST) |
+| | `01_prepare_officedocs.py` (DOCX, XLSX, PPTX, PDF, media) |
+
+#### New File Structure
+
+```text
+prepare_utils.py              ← Common: metadata extraction, YAML generation
+
+01_prepare_markdowndocs.py    ← Text-based: pass-through + metadata
+01_prepare_officedocs.py      ← Binary formats: markitdown/pymupdf4llm
+01_prepare_discourse.py       ← (future) PostgreSQL forum dump
+01_prepare_github.py          ← (future) GitHub API
+01_prepare_slack.py           ← (future) Slack export
+```
+
+#### Naming Convention
+
+All `01_prepare_*` scripts:
+- Accept data from different sources
+- Output to `prepared_contents/` as Markdown
+- Share `prepare_utils.py` for metadata extraction
+
+### Benefits of Separation
+
+| Aspect | Monolithic | Modular |
+| ------ | ---------- | ------- |
+| SQL dump handling | Bloat in main script | Separate `01_prepare_discourse.py` |
+| Dependency isolation | All deps always loaded | Only needed deps per script |
+| Testing | One giant test | Focused unit tests |
+| Dimension explosion | Risk of processing unwanted tables | Filter at prepare stage |
+
+### The Discourse Example
+
+For a PostgreSQL forum dump:
+
+```bash
+# Future script would:
+# 1. Connect to SQL dump
+# 2. SELECT posts + topics (ignore notifications, user_actions)
+# 3. Join and format as Markdown per topic
+# 4. Output to prepared_contents/
+
+uv run python 01_prepare_discourse.py --dump forum.sql
+```
+
+The key insight: **Data selection and filtering happens at Step 1**,
+not later in the pipeline. This prevents dimension explosion.
+
+---
+
+## v0.4.2 — Clear Positioning (January 2026)
+
+### The Identity Pivot
+
+After all the restructuring, I asked the fundamental question:
+
+> "Who is this project actually for?"
+
+The answer crystallized:
+
+> **This is NOT a fast RAG DB builder.**
+> **This is a tool for people who want to own their data.**
+
+### What Changed in v0.4.2
+
+#### 1. Clear Positioning in README
+
+| Before | After |
+| ------ | ----- |
+| "RAG-ready document preparation" | "NOT a fast RAG builder" |
+| Feature-focused | User-focused |
+| Implicit value | Explicit trade-offs |
+
+#### 2. Fast Path CLI
+
+New `main.py` with single command:
+
+```bash
+# Before (4 commands)
+uv run python 01_prepare_markdowndocs.py
+uv run python 01_prepare_officedocs.py
+uv run python 03_chunk_content.py
+uv run python example_sqlitevec_mcp.py all
+
+# After (1 command)
+uv run python main.py run
+```
+
+Options:
+- `--source markdown|office|all` — Choose input type
+- `--enrich` — Enable LLM enrichment
+- `--input-dir` — Custom input directory
+
+#### 3. Who Is This For?
+
+| If you want... | This project is... |
+| -------------- | ------------------ |
+| Quick RAG in 5 minutes | ❌ Not for you |
+| Lock-in to specific embedding | ❌ Not for you |
+| Black-box pipeline | ❌ Not for you |
+| **Own your data in portable formats** | ✅ For you |
+| **Human-readable checkpoints** | ✅ For you |
+| **Re-embed anytime with any model** | ✅ For you |
+| **Migrate to any vector DB** | ✅ For you |
+
+### The Two Value Propositions
+
+#### 💰 "Poor Man's RAG"
+
+- No GPU required
+- No cloud subscription required
+- No vendor lock-in
+- Start free, scale when ready
+
+#### 🔐 "Data Sovereignty"
+
+- Markdown: Human-readable, Git-versioned
+- Parquet: Portable, vendor-agnostic
+- No data leaves your machine (unless you choose)
+
+### The Lesson
+
+**Clarity > Features**
+
+Having many features but unclear positioning confuses users.
+Being honest about what you're NOT helps users self-select.
+
+The project name "Reconsidered RAG" now makes more sense:
+We're asking users to reconsider the trade-offs of convenience vs ownership.
+
+---
+
 Last updated: January 30, 2026

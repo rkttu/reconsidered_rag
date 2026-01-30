@@ -6,6 +6,20 @@ Details may change as experiments evolve, but the principles and boundaries desc
 
 ---
 
+## Who Is This For?
+
+> **This is NOT a fast RAG DB builder.**
+> **This is a tool for people who want to own their data.**
+
+| If you want... | This project is... |
+| -------------- | ------------------ |
+| Quick RAG in 5 minutes | ❌ Not for you |
+| Lock-in to specific embedding | ❌ Not for you |
+| **Own your data in portable formats** | ✅ For you |
+| **Re-embed anytime with any model** | ✅ For you |
+
+---
+
 ## Architecture
 
 ```mermaid
@@ -14,24 +28,20 @@ flowchart TD
         A[input_docs/<br/>Various format documents]
     end
     
-    subgraph "Preprocessing"
-        B[02_prepare_content.py<br/>Metadata extraction<br/>Markdown conversion]
+    subgraph "Core Pipeline"
+        B[01_prepare_*.py<br/>Document to Markdown]
+        C[02_enrich_content.py<br/>LLM enrichment]
+        D[03_chunk_content.py<br/>Structure-based chunking]
     end
     
-    subgraph "Chunking"
-        C[03_semantic_chunking.py<br/>Semantic chunking<br/>Embedding generation]
+    subgraph "Output"
+        E[chunked_data/<br/>Parquet files]
     end
     
-    subgraph "Storage"
-        D[chunked_data/<br/>parquet files]
-    end
-    
-    subgraph "Vector DB"
-        E[04_build_vector_db.py<br/>sqlite-vec build]
-    end
-    
-    subgraph "Serving"
-        F[05_mcp_server.py<br/>MCP server<br/>Vector search + reranking]
+    subgraph "Application Examples"
+        F[example_sqlitevec_mcp.py<br/>sqlite-vec + MCP server]
+        G[example_chroma.py<br/>ChromaDB - future]
+        H[example_pinecone.py<br/>Pinecone - future]
     end
     
     A --> B
@@ -39,16 +49,20 @@ flowchart TD
     C --> D
     D --> E
     E --> F
+    E --> G
+    E --> H
     
     style A fill:#e1f5fe
     style B fill:#f3e5f5
-    style C fill:#e8f5e8
-    style D fill:#fff3e0
-    style E fill:#fce4ec
-    style F fill:#e0f2f1
+    style C fill:#f3e5f5
+    style D fill:#f3e5f5
+    style E fill:#fff3e0
+    style F fill:#e8f5e9
+    style G fill:#e0f2f1
+    style H fill:#e0f2f1
 ```
 
-Intermediate results from each step are saved as parquet files, making various experiments and external system migrations easy.
+Intermediate results from each step are saved as Markdown or Parquet files, making various experiments and external system migrations easy.
 
 ---
 
@@ -112,12 +126,24 @@ They should not be interpreted as a recommended or complete RAG feature set.
 
 | Module | Description |
 | ------ | ----------- |
-| `01_download_model.py` | PIXIE-Rune embedding model download + ONNX conversion |
-| `02_prepare_content.py` | Metadata extraction and YAML front matter generation |
-| `03_semantic_chunking.py` | Semantic chunking and parquet storage |
-| `04_build_vector_db.py` | sqlite-vec vector DB build and search |
-| `05_mcp_server.py` | MCP server (stdio/SSE mode support) |
-| `embedding_model.py` | Unified embedding interface (ONNX/PyTorch) |
+| `prepare_utils.py` | Common utilities for all prepare scripts |
+| `01_prepare_markdowndocs.py` | Markdown, TXT, RST → Markdown with metadata |
+| `01_prepare_officedocs.py` | Office, PDF, media → Markdown with metadata |
+| `02_enrich_content.py` | LLM-based content enrichment (optional) |
+| `03_chunk_content.py` | Structure-based chunking to Parquet |
+| `example_sqlitevec_mcp.py` | Application example: sqlite-vec + MCP server |
+
+### Extensible Prepare Scripts
+
+The `01_prepare_*` naming convention allows multiple data source handlers:
+
+| Script | Data Source | Status |
+| ------ | ----------- | ------ |
+| `01_prepare_markdowndocs.py` | Markdown, TXT, RST | ✅ Available |
+| `01_prepare_officedocs.py` | DOCX, XLSX, PPTX, PDF, images, audio, video | ✅ Available |
+| `01_prepare_discourse.py` | PostgreSQL forum dump | 🔮 Future |
+| `01_prepare_github.py` | GitHub Issues/PRs via API | 🔮 Future |
+| `01_prepare_slack.py` | Slack export | 🔮 Future |
 
 ---
 
@@ -261,26 +287,37 @@ Or:
 
 ## Usage
 
-### 1. Model Download and ONNX Conversion (One-time)
+### Fast Path (Recommended)
 
 ```bash
-python 01_download_model.py
+# Install and run in one step
+uv sync
+uv run python main.py run
 ```
 
-This script:
+Output: `chunked_data/*.parquet` — text chunks ready for any embedding model.
 
-1. Downloads the PIXIE-Rune embedding model from Hugging Face
-2. Downloads the BGE Reranker model
-3. **Converts the embedding model to ONNX format** for faster CPU inference
-
-The ONNX conversion is automatic and saves the optimized model to `cache/onnx_model/`.
-
-### 2. Document Preparation
-
-Place files in `input_docs/` directory (various formats supported):
+### With LLM Enrichment
 
 ```bash
-python 02_prepare_content.py
+uv run python main.py run --enrich
+```
+
+### Step-by-Step (Power Users)
+
+#### 1. Document Preparation
+
+Place files in `input_docs/` directory. Choose the appropriate script:
+
+```bash
+# For Markdown, TXT, RST files (pass-through + metadata)
+uv run python 01_prepare_markdowndocs.py
+
+# For Office, PDF, media files (requires conversion)
+uv run python 01_prepare_officedocs.py
+
+# Or use main.py
+uv run python main.py prepare --source all
 ```
 
 All supported file formats are converted to Markdown with metadata added.
@@ -296,10 +333,10 @@ PDF files can be processed using two different libraries. Set the `PDF_PROCESSOR
 
 ```bash
 # Use default (pymupdf4llm)
-python 02_prepare_content.py
+uv run python 01_prepare_officedocs.py
 
 # Use markitdown (for Azure AI integration)
-PDF_PROCESSOR=markitdown python 02_prepare_content.py
+PDF_PROCESSOR=markitdown uv run python 01_prepare_officedocs.py
 ```
 
 Or add to `.env` file:
@@ -313,22 +350,48 @@ PDF_PROCESSOR=pymupdf4llm  # or "markitdown"
 - **pymupdf4llm** (recommended): Best for most PDFs, especially those with complex layouts, tables, or Korean text. Automatically removes unnecessary line breaks caused by PDF page layouts.
 - **markitdown**: Use when Azure Document Intelligence OCR is needed for scanned PDFs or images.
 
-### 3. Semantic Chunking
+#### 2. LLM Enrichment (Optional)
+
+Enrich documents with AI-generated metadata:
 
 ```bash
-python 03_semantic_chunking.py
+uv run python 02_enrich_content.py
+```
+
+Requires environment variables:
+- `ENRICHMENT_ENDPOINT`: Azure OpenAI endpoint
+- `ENRICHMENT_API_KEY`: API key
+- `ENRICHMENT_MODEL`: Model name (e.g., gpt-4.1)
+
+If not set, this step is automatically skipped.
+
+### 3. Structure-based Chunking
+
+```bash
+uv run python 03_chunk_content.py
 ```
 
 Options:
 
-- `--input-dir`: Input directory (default: `prepared_contents`)
+- `--input-dir`: Input directory (default: `enriched_contents` or `prepared_contents`)
 - `--output-dir`: Output directory (default: `chunked_data`)
-- `--similarity-threshold`: Similarity threshold (default: 0.5)
+- `--max-chunk-size`: Maximum chunk size (default: 1000)
+- `--min-chunk-size`: Minimum chunk size (default: 50)
 
-### 4. Vector DB Build
+### 4. Application Example: sqlite-vec + MCP
 
 ```bash
-python 04_build_vector_db.py
+# Build vector DB from Parquet
+uv run python example_sqlitevec_mcp.py build
+
+# Run MCP server (stdio mode)
+uv run python example_sqlitevec_mcp.py serve
+
+# Run MCP server (SSE mode)
+uv run python example_sqlitevec_mcp.py serve --sse --port 8080
+
+# Build and serve in one command
+uv run python example_sqlitevec_mcp.py all
 ```
 
 Options:
@@ -336,8 +399,14 @@ Options:
 - `--input-dir`: Input directory (default: `chunked_data`)
 - `--output-dir`: Output directory (default: `vector_db`)
 - `--db-name`: DB filename (default: `vectors.db`)
+- `--model`: Embedding model (default: `BAAI/bge-m3`)
+- `--force`: Force rebuild if model mismatch
 - `--export-parquet`: Export parquet for Milvus/Qdrant migration
 - `--test-search "query"`: Perform test search after build
+- `--sse`: Run in SSE mode
+- `--host`: SSE server host (default: `127.0.0.1`)
+- `--port`: SSE server port (default: `8080`)
+- `--no-preload`: Don't preload model at startup
 
 #### Vector DB Portability
 
@@ -359,21 +428,14 @@ Provides vector search via MCP protocol.
 #### stdio Mode (Claude Desktop, Cursor, etc.)
 
 ```bash
-python 05_mcp_server.py
+uv run python example_sqlitevec_mcp.py serve
 ```
 
 #### SSE Mode (Web clients)
 
 ```bash
-python 05_mcp_server.py --sse --port 8080
+uv run python example_sqlitevec_mcp.py serve --sse --port 8080
 ```
-
-Options:
-
-- `--db-path`: Vector DB path (default: `vector_db/vectors.db`)
-- `--sse`: Run in SSE mode
-- `--host`: SSE server host (default: `127.0.0.1`)
-- `--port`: SSE server port (default: `8080`)
 
 #### Available Tools
 
@@ -391,9 +453,10 @@ Options:
 ```json
 {
   "mcpServers": {
-    "aipack-vector-search": {
-      "command": "python",
-      "args": ["D:/Projects/aipack/05_mcp_server.py"]
+    "reconsidered-rag-search": {
+      "command": "uv",
+      "args": ["run", "python", "example_sqlitevec_mcp.py", "serve"],
+      "cwd": "D:/Projects/reconsidered_rag"
     }
   }
 }
@@ -414,19 +477,20 @@ This repository includes pre-configured MCP settings for VS Code and Cursor. Sim
 
 ### Quick Start
 
-1. **Install dependencies and download models**:
+1. **Install dependencies**:
 
    ```bash
    uv sync
-   uv run python 01_download_model.py
    ```
 
 2. **Prepare sample data** (or add your own documents to `input_docs/`):
 
    ```bash
-   uv run python 02_prepare_content.py
-   uv run python 03_semantic_chunking.py
-   uv run python 04_build_vector_db.py
+   uv run python 01_prepare_markdowndocs.py  # for .md, .txt, .rst
+   uv run python 01_prepare_officedocs.py    # for .docx, .pdf, .pptx, etc.
+   uv run python 02_enrich_content.py        # optional
+   uv run python 03_chunk_content.py
+   uv run python example_sqlitevec_mcp.py build
    ```
 
 3. **Open the project folder** in VS Code or Cursor
@@ -442,10 +506,10 @@ This repository includes pre-configured MCP settings for VS Code and Cursor. Sim
 ```json
 {
   "servers": {
-    "aipack-vector-search": {
+    "reconsidered-rag-search": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "python", "05_mcp_server.py"],
+      "args": ["run", "python", "example_sqlitevec_mcp.py", "serve"],
       "cwd": "${workspaceFolder}"
     }
   }
@@ -457,9 +521,9 @@ This repository includes pre-configured MCP settings for VS Code and Cursor. Sim
 ```json
 {
   "mcpServers": {
-    "aipack-vector-search": {
+    "reconsidered-rag-search": {
       "command": "uv",
-      "args": ["run", "python", "05_mcp_server.py"],
+      "args": ["run", "python", "example_sqlitevec_mcp.py", "serve"],
       "cwd": "${workspaceFolder}"
     }
   }
@@ -501,21 +565,21 @@ This repository includes pre-configured MCP settings for VS Code and Cursor. Sim
 
 ```text
 reconsidered_rag/
-├── 01_download_model.py       # PIXIE-Rune model download + ONNX conversion
-├── 02_prepare_content.py      # Metadata extraction + Azure integration
-├── 03_semantic_chunking.py    # Semantic chunking
-├── 04_build_vector_db.py      # Vector DB build
-├── 05_mcp_server.py     # MCP server (stdio/SSE)
-├── embedding_model.py         # Unified embedding interface
+├── prepare_utils.py           # Common utilities for prepare scripts
+├── 01_prepare_markdowndocs.py # Markdown/TXT/RST → Markdown
+├── 01_prepare_officedocs.py   # Office/PDF/media → Markdown
+├── 02_enrich_content.py       # LLM-based content enrichment
+├── 03_chunk_content.py        # Structure-based chunking
+├── example_sqlitevec_mcp.py   # Example: sqlite-vec + MCP server
 ├── input_docs/                # Input documents
-├── prepared_contents/         # Documents with metadata added
-├── chunked_data/              # Chunked parquet files
-├── cache/
-│   ├── huggingface/           # Model cache directory
-│   └── onnx_model/            # ONNX converted model
-├── vector_db/                 # sqlite-vec vector DB
+├── prepared_contents/         # Step 1 output: Markdown
+├── enriched_contents/         # Step 2 output: Enriched Markdown
+├── chunked_data/              # Step 3 output: Parquet files
+├── vector_db/                 # Example output: sqlite-vec DB
 │   ├── vectors.db             # Local vector DB
 │   └── vectors_export.parquet # Export file for migration
+├── cache/
+│   └── huggingface/           # Model cache directory
 ├── .env.example               # Environment variable template
 ├── pyproject.toml
 └── README.md

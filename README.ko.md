@@ -12,6 +12,87 @@
 
 ---
 
+## 핵심 요약
+
+> **이것은 빠른 RAG DB 빌더가 아닙니다.**
+> **이것은 데이터를 소유하고 싶은 사람들을 위한 도구입니다.**
+>
+> 빠른 RAG 구축을 원한다면 LangChain이나 LlamaIndex를 사용하세요.
+> **데이터 주권**과 **벤더 종속 방지**를 원한다면 계속 읽어보세요.
+
+---
+
+## 누구를 위한 프로젝트인가?
+
+| 원하는 것 | 이 프로젝트는... |
+| --------- | --------------- |
+| 5분 안에 RAG 구축 | ❌ 맞지 않음 |
+| 특정 임베딩 모델 고정 | ❌ 맞지 않음 |
+| 블랙박스 파이프라인 | ❌ 맞지 않음 |
+| **이식 가능한 포맷으로 데이터 소유** | ✅ 적합 |
+| **사람이 읽을 수 있는 체크포인트** | ✅ 적합 |
+| **언제든 다른 모델로 재임베딩** | ✅ 적합 |
+| **어떤 벡터 DB로든 마이그레이션** | ✅ 적합 |
+
+---
+
+## 세 가지 사용 사례
+
+### 💰 인프라 투자가 어려운 곳
+
+**GPU 없음. 클라우드 없음. 비싼 구독 없음.**
+
+- 코어 파이프라인은 모든 노트북에서 오프라인 실행
+- ~200MB 설치 (임베딩 포함 도구의 2GB+ 대비)
+- 준비되었을 때만 임베딩/벡터 DB 비용 지불
+
+### 🔐 데이터 주권이 중요한 곳
+
+**데이터가 절대 내 머신을 떠나지 않습니다.**
+
+- 모든 처리가 로컬에서 수행
+- 영원히 통제할 수 있는 이식 가능한 포맷 (Markdown, Parquet)
+- 벤더 종속 없음 — 언제든 임베딩 모델이나 벡터 DB 변경 가능
+- 버전 관리와 감사를 위한 Git 친화적 체크포인트
+
+### ⚡ 빠른 시작, 완전한 통제
+
+**2개 명령으로 시작. 어떤 클라우드나 로컬 모델과도 통합 가능.**
+
+```bash
+uv sync
+uv run python main.py run
+```
+
+그 다음 원하는 스택 선택:
+
+| 컴포넌트 | 선택지 |
+| -------- | ------ |
+| **임베딩** | OpenAI, Azure OpenAI, Cohere, Voyage, Google, AWS Bedrock, 로컬 ONNX |
+| **벡터 DB** | Pinecone, Qdrant, Milvus, Chroma, Weaviate, Azure AI Search, pgvector |
+| **LLM** | GPT-4, Claude, Gemini, Llama, Mistral, 또는 MCP 호환 클라이언트 |
+
+**CSP 종속 없음.** Parquet 출력은 모든 서비스와 호환됩니다.
+
+```python
+# 예시: Azure OpenAI
+from openai import AzureOpenAI
+client = AzureOpenAI(azure_endpoint="...", api_key="...")
+embeddings = client.embeddings.create(model="text-embedding-3-large", input=texts)
+
+# 예시: AWS Bedrock
+import boto3
+client = boto3.client("bedrock-runtime")
+response = client.invoke_model(modelId="amazon.titan-embed-text-v2:0", body=...)
+
+# 예시: 로컬 ONNX
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer("BAAI/bge-m3")
+embeddings = model.encode(texts)
+```
+
+---
+
 ## 이 프로젝트가 하는 일
 
 ```mermaid
@@ -75,12 +156,29 @@ flowchart LR
 
 | 단계 | 스크립트 | 입력 | 출력 |
 | ---- | -------- | ---- | ---- |
-| 1 | `01_prepare_content.py` | 문서 (input_docs/) | Markdown (prepared_contents/) |
-| 2 | `02_chunk_content.py` | Markdown | 청크 Parquet (chunked_data/) |
+| 1a | `01_prepare_markdowndocs.py` | Markdown, TXT, RST | Markdown (prepared_contents/) |
+| 1b | `01_prepare_officedocs.py` | DOCX, XLSX, PPTX, PDF 등 | Markdown (prepared_contents/) |
+| 2 | `02_enrich_content.py` | Markdown | 보강된 Markdown (enriched_contents/) |
+| 3 | `03_chunk_content.py` | Markdown | 청크 Parquet (chunked_data/) |
 
-**끝. 2단계.**
+**여러 `01_prepare_*` 스크립트가 공존 가능**합니다:
+- `01_prepare_markdowndocs.py` — 이미 텍스트 기반 (패스스루 + 메타데이터)
+- `01_prepare_officedocs.py` — 변환이 필요한 바이너리 형식
+- `01_prepare_discourse.py` — (향후) PostgreSQL 포럼 덤프
+- `01_prepare_github.py` — (향후) GitHub 이슈/PR
 
-임베딩 모델 없음. 벡터 DB 없음. 문서 준비만.
+모두 Markdown 출력 → 동일한 `02_enrich` → `03_chunk` 파이프라인.
+
+---
+
+## 응용 예시
+
+Parquet 출력물은 어떤 임베딩 모델과 벡터 DB와도 사용 가능합니다.
+이 저장소에는 참조 구현이 포함되어 있습니다:
+
+| 예시 | 설명 |
+| ---- | ---- |
+| `example_sqlitevec_mcp.py` | sqlite-vec + MCP 서버로 로컬 테스트 |
 
 ---
 
@@ -102,15 +200,32 @@ flowchart LR
 
 ## 빠른 시작
 
+### Fast Path (2개 명령)
+
 ```bash
-# 의존성 설치 (최소)
 uv sync
+uv run python main.py run
+```
 
+끝입니다. 문서가 `chunked_data/*.parquet`에 준비되었습니다.
+
+### LLM 보강 포함
+
+```bash
+uv run python main.py run --enrich
+```
+
+### 단계별 실행 (고급 사용자)
+
+```bash
 # 1. 문서 준비 (input_docs/에 파일 넣기)
-uv run python 01_prepare_content.py
+uv run python main.py prepare
 
-# 2. 구조 기반 청킹
-uv run python 02_chunk_content.py
+# 2. LLM 보강 (선택적, Azure OpenAI 필요)
+uv run python main.py enrich
+
+# 3. 구조 기반 청킹
+uv run python main.py chunk
 
 # 완료! chunked_data/*.parquet 확인
 ```
@@ -179,11 +294,23 @@ sqlite-vec로 로컬 테스트를 원한다면:
 uv sync --extra vectordb
 uv sync --extra mcp
 
-# 벡터 DB 빌드 (임베딩 모델 필요)
-uv run python 03_build_vector_db.py
+# 벡터 DB 빌드 (BGE-M3 기본)
+uv run python example_sqlitevec_mcp.py build
 
-# 테스트용 MCP 서버 실행
-uv run python 05_mcp_server.py
+# 다른 임베딩 모델 사용
+uv run python example_sqlitevec_mcp.py build --model intfloat/multilingual-e5-large
+
+# 지원 모델 목록
+uv run python example_sqlitevec_mcp.py --list-models
+
+# MCP 서버 실행 (stdio 모드)
+uv run python example_sqlitevec_mcp.py serve
+
+# SSE 모드
+uv run python example_sqlitevec_mcp.py serve --sse --port 8080
+
+# 빌드 + 서버 한 번에
+uv run python example_sqlitevec_mcp.py all
 ```
 
 ---
