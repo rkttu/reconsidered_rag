@@ -40,6 +40,8 @@ from prepare_utils import (
     strip_existing_front_matter,
     write_with_front_matter,
     print_processing_result,
+    collect_files_recursive,
+    get_relative_output_path,
 )
 
 
@@ -322,11 +324,8 @@ def process_all_documents(
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Collect supported files
-    all_files = [
-        f for f in input_dir.iterdir()
-        if f.is_file() and is_supported_file(f)
-    ]
+    # Collect supported files recursively (max 5 levels, skip symlinks)
+    all_files = collect_files_recursive(input_dir, SUPPORTED_EXTENSIONS)
     
     if not all_files:
         print(f"⚠️ 처리할 파일이 없습니다: {input_dir}")
@@ -346,10 +345,16 @@ def process_all_documents(
     
     results = []
     for i, file_path in enumerate(all_files, 1):
-        print(f"\n[{i}/{len(all_files)}] {file_path.name}")
+        # Show relative path for nested files
+        try:
+            rel_path = file_path.relative_to(input_dir)
+        except ValueError:
+            rel_path = file_path.name
+        print(f"\n[{i}/{len(all_files)}] {rel_path}")
         
         try:
-            output_path = output_dir / file_path.with_suffix('.md').name
+            output_path = get_relative_output_path(file_path, input_dir, output_dir)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
             result = prepare_document(file_path, output_path, pdf_processor)
             
             # Read back metadata for display

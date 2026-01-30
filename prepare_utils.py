@@ -48,6 +48,94 @@ CIRCLED_NUMBERS = [
 LEFT_BLACK_LENTICULAR_BRACKET = '\u3010'  # 【
 RIGHT_BLACK_LENTICULAR_BRACKET = '\u3011'  # 】
 
+# Maximum depth for recursive directory traversal
+MAX_RECURSIVE_DEPTH = 5
+
+
+def collect_files_recursive(
+    input_dir: Path,
+    supported_extensions: set[str],
+    max_depth: int = MAX_RECURSIVE_DEPTH,
+    current_depth: int = 0,
+) -> list[Path]:
+    """
+    Recursively collect files with supported extensions.
+    
+    Args:
+        input_dir: Input directory to search
+        supported_extensions: Set of supported file extensions (lowercase, with dot)
+        max_depth: Maximum recursion depth (default: 5)
+        current_depth: Current recursion depth (internal use)
+    
+    Returns:
+        List of file paths
+    
+    Notes:
+        - Symbolic links are skipped to prevent infinite loops
+        - Depth is limited to max_depth to prevent excessive recursion
+    """
+    if current_depth > max_depth:
+        return []
+    
+    if not input_dir.exists():
+        return []
+    
+    collected_files: list[Path] = []
+    
+    try:
+        for item in input_dir.iterdir():
+            # Skip symbolic links to prevent infinite loops
+            if item.is_symlink():
+                continue
+            
+            if item.is_file():
+                if item.suffix.lower() in supported_extensions:
+                    collected_files.append(item)
+            elif item.is_dir():
+                # Recurse into subdirectories
+                collected_files.extend(
+                    collect_files_recursive(
+                        item,
+                        supported_extensions,
+                        max_depth,
+                        current_depth + 1,
+                    )
+                )
+    except PermissionError:
+        print(f"⚠️ 접근 권한 없음: {input_dir}")
+    except Exception as e:
+        print(f"⚠️ 디렉터리 탐색 오류: {input_dir} - {e}")
+    
+    return collected_files
+
+
+def get_relative_output_path(
+    input_file: Path,
+    input_base_dir: Path,
+    output_base_dir: Path,
+) -> Path:
+    """
+    Calculate output path preserving relative directory structure.
+    
+    Args:
+        input_file: Input file path
+        input_base_dir: Base input directory
+        output_base_dir: Base output directory
+    
+    Returns:
+        Output file path with .md extension
+    """
+    try:
+        relative_path = input_file.relative_to(input_base_dir)
+    except ValueError:
+        # If not relative, just use the filename
+        relative_path = Path(input_file.name)
+    
+    # Change extension to .md and build output path
+    output_path = output_base_dir / relative_path.with_suffix('.md')
+    
+    return output_path
+
 
 # =============================================================================
 # Azure Service Configuration
