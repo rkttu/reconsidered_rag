@@ -21,6 +21,7 @@ INPUT_DIR = BASE_DIR / "input_docs"
 OUTPUT_DIRS = [
     BASE_DIR / "prepared_contents",
     BASE_DIR / "chunked_data",
+    BASE_DIR / "enriched_contents"
     BASE_DIR / "vector_db",
     BASE_DIR / "test_output",
 ]
