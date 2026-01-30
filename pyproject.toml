@@ -1,31 +1,24 @@
 [project]
 name = "reconsidered_rag"
-version = "0.1.0"
-description = "AI-powered document processing with ONNX model for propositional chunking"
+version = "0.3.0"
+description = "Portable RAG dataset preparation: offline chunking, human-readable checkpoints, infrastructure-agnostic"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
-    "accelerate>=1.12.0",
-    "flagembedding>=1.3.5",
-    "huggingface-hub[hf_xet]>=0.20.0",
+    # Core document processing
     "langdetect>=1.0.9",
     "markitdown[all]>=0.1.4",
-    "mcp[cli]>=1.25.0",
     "mistune>=3.2.0",
-    "onnx>=1.20.0",
-    "onnxruntime>=1.20.1",
-    "onnxruntime-genai>=0.5.0",
-    "optimum[onnxruntime]>=2.1.0",
-    "pandas>=2.3.3",
-    "pyarrow>=22.0.0",
     "pymupdf4llm>=0.2.7",
     "pyyaml>=6.0",
-    "sentence-transformers>=5.2.0",
-    "sqlite-vec>=0.1.6",
-    "tqdm>=4.65.0",
-    "transformers>=4.57.3",
+    "python-dotenv>=1.0.0",
+    # Data storage
+    "pandas>=2.3.3",
+    "pyarrow>=22.0.0",
+    # CLI
     "typer>=0.21.0",
+    "tqdm>=4.65.0",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +27,33 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
 ]
+# Optional: LLM enrichment (Microsoft Foundry / Azure OpenAI)
+enrich = [
+    "azure-ai-inference>=1.0.0b1",
+    "openai>=1.0.0",
+]
+# Optional: for building vector DB locally with BGE-M3/E5 models
+vectordb = [
+    "sqlite-vec>=0.1.6",
+    "sentence-transformers>=3.0.0",
+    "numpy>=1.26.0",
+]
+# Optional: MCP server for RAG testing
+mcp = [
+    "mcp[cli]>=1.25.0",
+    "sqlite-vec>=0.1.6",
+    "sentence-transformers>=3.0.0",
+    "numpy>=1.26.0",
+    "starlette>=0.27.0",
+    "uvicorn>=0.23.0",
+]
+# All optional dependencies
+all = [
+    "reconsidered_rag[enrich,vectordb,mcp]",
+]
 
 [project.scripts]
-download-model = "01_download_model:main"
-prepare-content = "02_prepare_content:main"
+prepare-content = "01_prepare_content:main"
+chunk-content = "02_chunk_content:main"
+build-vectordb = "03_build_vector_db:main"
+mcp-server = "04_mcp_server:main"

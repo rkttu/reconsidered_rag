@@ -1,13 +1,17 @@
 """
-04_build_vector_db.py
-Module that reads parquet files from chunked_data, generates PIXIE-Rune embeddings,
-and compiles them into a local vector database based on sqlite-vec
+03_build_vector_db.py
+Build sqlite-vec vector database from chunked parquet files
 
 Features:
-- PIXIE-Rune Dense vector (1024-dimension) based search
-- Utilizes sqlite-vec extension (vector similarity search)
-- Stores metadata and vectors together
-- Parquet export portable to Milvus/Qdrant, etc.
+- Local embedding models (BGE-M3, multilingual-e5-large, etc.)
+- No external API required - fully offline capable
+- sqlite-vec extension for vector similarity search
+- Portable export to Milvus/Qdrant-compatible parquet
+
+Supported embedding models:
+- BAAI/bge-m3 (default, 1024 dim, multilingual)
+- intfloat/multilingual-e5-large (1024 dim)
+- sentence-transformers/all-MiniLM-L6-v2 (384 dim, fast)
 """
 
 import json
@@ -19,34 +23,122 @@ from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 import sqlite_vec
+from sentence_transformers import SentenceTransformer
 
-from embedding_model import get_embedding_model, PIXIEEmbeddingModel, EMBEDDING_DIM
 
-
-# 디렉터리 설정
+# Directory configuration
 BASE_DIR = Path(__file__).parent
 INPUT_DIR = BASE_DIR / "chunked_data"
 OUTPUT_DIR = BASE_DIR / "vector_db"
+
+# Default embedding model
+DEFAULT_MODEL = "BAAI/bge-m3"
+
+# Model configurations (name -> dimension)
+MODEL_CONFIGS = {
+    "BAAI/bge-m3": 1024,
+    "intfloat/multilingual-e5-large": 1024,
+    "intfloat/multilingual-e5-base": 768,
+    "sentence-transformers/all-MiniLM-L6-v2": 384,
+    "sentence-transformers/all-mpnet-base-v2": 768,
+}
+
+
+class LocalEmbeddingModel:
+    """Local embedding model using sentence-transformers"""
+
+    def __init__(self, model_name: str = DEFAULT_MODEL):
+        self.model_name = model_name
+        self.model: Optional[SentenceTransformer] = None
+        self._dimension: Optional[int] = None
+
+    def initialize(self) -> None:
+        """Load the embedding model"""
+        if self.model is not None:
+            return
+
+        print(f"🔄 Loading embedding model: {self.model_name}")
+        self.model = SentenceTransformer(self.model_name, trust_remote_code=True)
+
+        # Get embedding dimension
+        test_embedding = self.model.encode(["test"], convert_to_numpy=True)
+        self._dimension = test_embedding.shape[1]
+        print(f"   ✅ Model loaded (dimension: {self._dimension})")
+
+    @property
+    def dimension(self) -> int:
+        """Get embedding dimension"""
+        if self._dimension is None:
+            # Use predefined config or default
+            return MODEL_CONFIGS.get(self.model_name, 1024)
+        return self._dimension
+
+    def encode(
+        self,
+        texts: list[str],
+        batch_size: int = 32,
+        is_query: bool = False,
+        show_progress: bool = True,
+    ) -> np.ndarray:
+        """
+        Encode texts to embeddings
+
+        Args:
+            texts: List of texts to encode
+            batch_size: Batch size for encoding
+            is_query: If True, add query prefix for asymmetric models
+            show_progress: Show progress bar
+
+        Returns:
+            numpy array of embeddings
+        """
+        if self.model is None:
+            self.initialize()
+
+        # Type guard after initialization
+        if self.model is None:
+            raise RuntimeError("Model initialization failed")
+
+        if not texts:
+            return np.array([])
+
+        # BGE-M3 and E5 models use instruction prefixes
+        processed_texts = texts
+        if "bge" in self.model_name.lower():
+            if is_query:
+                # For queries, no prefix needed in BGE-M3
+                pass
+            # For documents, no prefix needed in BGE-M3
+        elif "e5" in self.model_name.lower():
+            prefix = "query: " if is_query else "passage: "
+            processed_texts = [prefix + t for t in texts]
+
+        return self.model.encode(
+            processed_texts,
+            batch_size=batch_size,
+            show_progress_bar=show_progress,
+            convert_to_numpy=True,
+            normalize_embeddings=True,  # L2 normalize for cosine similarity
+        )
 
 
 class VectorDBBuilder:
     """sqlite-vec based vector DB builder"""
 
-    def __init__(self, db_path: Path):
+    def __init__(self, db_path: Path, model_name: str = DEFAULT_MODEL):
         self.db_path = db_path
+        self.model_name = model_name
         self.conn: Optional[sqlite3.Connection] = None
-        self.model: Optional[PIXIEEmbeddingModel] = None
+        self.model: Optional[LocalEmbeddingModel] = None
 
     def _load_model(self) -> None:
-        """PIXIE-Rune ONNX 모델 로드"""
-        self.model = get_embedding_model(use_onnx=True)
+        """Load embedding model"""
+        self.model = LocalEmbeddingModel(self.model_name)
         self.model.initialize()
 
     def _init_db(self) -> None:
-        """sqlite-vec DB 초기화"""
+        """Initialize sqlite-vec database"""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.conn = sqlite3.connect(str(self.db_path))
@@ -54,7 +146,10 @@ class VectorDBBuilder:
         sqlite_vec.load(self.conn)
         self.conn.enable_load_extension(False)
 
-        # 메타데이터 테이블
+        # Get embedding dimension
+        dim = self.model.dimension if self.model else 1024
+
+        # Metadata table
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS chunks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,8 +162,8 @@ class VectorDBBuilder:
                 heading_level INTEGER,
                 heading_text TEXT,
                 parent_heading TEXT,
-                section_path TEXT,  -- JSON 배열
-                table_headers TEXT,  -- JSON 배열
+                section_path TEXT,
+                table_headers TEXT,
                 table_row_count INTEGER,
                 domain TEXT,
                 sub_domain TEXT,
@@ -82,15 +177,31 @@ class VectorDBBuilder:
             )
         """)
 
-        # 벡터 테이블 (sqlite-vec 가상 테이블)
-        self.conn.execute(f"""
-            CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(
-                chunk_id TEXT PRIMARY KEY,
-                embedding FLOAT[{EMBEDDING_DIM}]
+        # Model info table
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS model_info (
+                id INTEGER PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                embedding_dim INTEGER NOT NULL,
+                created_at TEXT
             )
         """)
 
-        # 인덱스
+        # Insert or update model info
+        self.conn.execute("""
+            INSERT OR REPLACE INTO model_info (id, model_name, embedding_dim, created_at)
+            VALUES (1, ?, ?, ?)
+        """, (self.model_name, dim, datetime.now().isoformat()))
+
+        # Vector table (sqlite-vec virtual table)
+        self.conn.execute(f"""
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(
+                chunk_id TEXT PRIMARY KEY,
+                embedding FLOAT[{dim}]
+            )
+        """)
+
+        # Indexes
         self.conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_chunks_source_file
             ON chunks(source_file)
@@ -101,57 +212,58 @@ class VectorDBBuilder:
         """)
 
         self.conn.commit()
-        print(f"✅ DB 초기화 완료: {self.db_path}")
+        print(f"✅ DB initialized: {self.db_path} (dim={dim})")
 
     def _get_embeddings(self, texts: list[str]) -> np.ndarray:
-        """텍스트 리스트의 Dense 임베딩 계산"""
+        """Compute embeddings for text list"""
         if not texts or self.model is None:
             return np.array([])
 
         return self.model.encode(texts, batch_size=32, is_query=False)
 
     def _serialize_vector(self, vec: np.ndarray) -> bytes:
-        """numpy 벡터를 sqlite-vec용 bytes로 변환"""
+        """Convert numpy vector to sqlite-vec bytes"""
         return struct.pack(f"{len(vec)}f", *vec)
 
     def build(self, input_dir: Path = INPUT_DIR) -> dict:
         """
-        벡터 DB 빌드
+        Build vector database
 
         Args:
-            input_dir: chunked_data 디렉터리
+            input_dir: Directory containing chunked parquet files
 
         Returns:
-            빌드 통계
+            Build statistics
         """
         input_dir = Path(input_dir)
 
         if not input_dir.exists():
-            print(f"⚠️ 입력 디렉터리가 없습니다: {input_dir}")
+            print(f"⚠️ Input directory not found: {input_dir}")
             return {"error": "Input directory not found"}
 
         parquet_files = list(input_dir.glob("*.parquet"))
         if not parquet_files:
-            print(f"⚠️ parquet 파일이 없습니다: {input_dir}")
+            print(f"⚠️ No parquet files found: {input_dir}")
             return {"error": "No parquet files found"}
 
-        print(f"\n📦 벡터 DB 빌드 시작")
-        print(f"   입력: {len(parquet_files)}개 parquet 파일")
+        print(f"\n📦 Building vector DB")
+        print(f"   Model: {self.model_name}")
+        print(f"   Input: {len(parquet_files)} parquet files")
         print("=" * 50)
 
-        # 모델 및 DB 초기화
+        # Initialize model and DB
         self._load_model()
         self._init_db()
 
-        # 타입 가드: conn이 None이면 오류
         if self.conn is None:
-            raise RuntimeError("DB 연결에 실패했습니다")
+            raise RuntimeError("Failed to connect to database")
 
         stats = {
             "total_chunks": 0,
             "embedded_chunks": 0,
             "skipped_chunks": 0,
             "files_processed": 0,
+            "model": self.model_name,
         }
 
         now = datetime.now().isoformat()
@@ -161,9 +273,9 @@ class VectorDBBuilder:
 
             try:
                 df = pd.read_parquet(pq_file)
-                print(f"   📖 청크 수: {len(df)}")
+                print(f"   📖 Chunks: {len(df)}")
 
-                # 이미 존재하는 chunk_id 확인
+                # Check existing chunk_ids
                 chunk_ids = df["chunk_id"].tolist()
                 placeholders = ",".join(["?"] * len(chunk_ids))
                 existing = set(
@@ -177,20 +289,19 @@ class VectorDBBuilder:
                 stats["skipped_chunks"] += len(existing)
 
                 if new_chunks.empty:
-                    print(f"   ⏭️ 모든 청크가 이미 존재함")
+                    print(f"   ⏭️ All chunks already exist")
                     stats["files_processed"] += 1
                     continue
 
-                print(f"   🔍 새 청크: {len(new_chunks)}개, 스킵: {len(existing)}개")
+                print(f"   🔍 New: {len(new_chunks)}, Skip: {len(existing)}")
 
-                # 임베딩 생성
+                # Generate embeddings
                 texts = new_chunks["chunk_text"].tolist()
                 embeddings = self._get_embeddings(texts)
 
-                # DB에 삽입
+                # Insert into DB
                 for idx, (_, row) in enumerate(new_chunks.iterrows()):
-                    # 메타데이터 테이블
-                    # section_path와 table_headers가 numpy 배열일 수 있으므로 list로 변환
+                    # Handle numpy arrays in section_path/table_headers
                     section_path = row.get("section_path", [])
                     if hasattr(section_path, "tolist"):
                         section_path = section_path.tolist()
@@ -198,6 +309,7 @@ class VectorDBBuilder:
                     if hasattr(table_headers, "tolist"):
                         table_headers = table_headers.tolist()
 
+                    # Metadata table
                     self.conn.execute("""
                         INSERT OR REPLACE INTO chunks (
                             chunk_id, content_hash, source_file, chunk_index,
@@ -230,7 +342,7 @@ class VectorDBBuilder:
                         now,
                     ))
 
-                    # 벡터 테이블
+                    # Vector table
                     vec_bytes = self._serialize_vector(embeddings[idx])
                     self.conn.execute(
                         "INSERT INTO chunk_vectors (chunk_id, embedding) VALUES (?, ?)",
@@ -242,39 +354,45 @@ class VectorDBBuilder:
                 self.conn.commit()
                 stats["total_chunks"] += len(df)
                 stats["files_processed"] += 1
-                print(f"   ✅ 완료")
+                print(f"   ✅ Done")
 
             except Exception as e:
-                print(f"   ❌ 오류: {e}")
+                print(f"   ❌ Error: {e}")
                 import traceback
                 traceback.print_exc()
 
         print("\n" + "=" * 50)
-        print(f"✅ 빌드 완료")
-        print(f"   📊 총 청크: {stats['total_chunks']}")
-        print(f"   🆕 임베딩 생성: {stats['embedded_chunks']}")
-        print(f"   ⏭️ 스킵: {stats['skipped_chunks']}")
-        print(f"   💾 DB 위치: {self.db_path}")
+        print(f"✅ Build complete")
+        print(f"   📊 Total chunks: {stats['total_chunks']}")
+        print(f"   🆕 Embedded: {stats['embedded_chunks']}")
+        print(f"   ⏭️ Skipped: {stats['skipped_chunks']}")
+        print(f"   💾 DB path: {self.db_path}")
 
         return stats
 
     def export_for_milvus(self, output_path: Path) -> Path:
         """
-        Milvus/Qdrant 등으로 이식 가능한 Parquet 파일 내보내기
+        Export to Milvus/Qdrant compatible parquet file
 
-        벡터를 float32 배열로 포함하여 다른 DB에서 직접 import 가능
+        Includes vectors as float32 arrays for direct import
         """
         if self.conn is None:
-            raise RuntimeError("DB가 초기화되지 않았습니다")
+            raise RuntimeError("Database not initialized")
 
-        print(f"\n📤 벡터 DB 내보내기 중...")
+        print(f"\n📤 Exporting vector DB...")
 
-        # 모든 데이터 조회
+        # Query all data
         chunks_df = pd.read_sql_query(
             "SELECT * FROM chunks ORDER BY id", self.conn
         )
 
-        # 벡터 조회 및 변환
+        # Get embedding dimension
+        dim_result = self.conn.execute(
+            "SELECT embedding_dim FROM model_info WHERE id = 1"
+        ).fetchone()
+        dim = dim_result[0] if dim_result else 1024
+
+        # Query and convert vectors
         vectors = []
         for chunk_id in chunks_df["chunk_id"]:
             result = self.conn.execute(
@@ -287,17 +405,17 @@ class VectorDBBuilder:
                 vec = np.frombuffer(vec_bytes, dtype=np.float32)
                 vectors.append(vec.tolist())
             else:
-                vectors.append([0.0] * EMBEDDING_DIM)
+                vectors.append([0.0] * dim)
 
         chunks_df["embedding"] = vectors
 
-        # Parquet 저장 (벡터 포함)
+        # Save as parquet (with vectors)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         chunks_df.to_parquet(output_path, compression="zstd")
 
-        print(f"✅ 내보내기 완료: {output_path}")
-        print(f"   📊 청크 수: {len(chunks_df)}")
-        print(f"   📐 벡터 차원: {EMBEDDING_DIM}")
+        print(f"✅ Export complete: {output_path}")
+        print(f"   📊 Chunks: {len(chunks_df)}")
+        print(f"   📐 Dimension: {dim}")
 
         return output_path
 
@@ -308,26 +426,25 @@ class VectorDBBuilder:
         domain_filter: Optional[str] = None,
     ) -> list[dict]:
         """
-        벡터 유사도 검색
+        Vector similarity search
 
         Args:
-            query: 검색 쿼리
-            top_k: 반환할 결과 수
-            domain_filter: 도메인 필터 (선택)
+            query: Search query
+            top_k: Number of results to return
+            domain_filter: Filter by domain (optional)
 
         Returns:
-            검색 결과 리스트
+            List of search results
         """
         if self.conn is None or self.model is None:
-            raise RuntimeError("DB 또는 모델이 초기화되지 않았습니다")
+            raise RuntimeError("DB or model not initialized")
 
-        # 쿼리 임베딩
-        query_embedding = self._get_embeddings([query])[0]
+        # Query embedding
+        query_embedding = self.model.encode([query], is_query=True)[0]
         query_bytes = self._serialize_vector(query_embedding)
 
-        # 벡터 검색 (sqlite-vec knn 쿼리)
-        # 필터링을 위해 더 많이 가져옴
-        limit = top_k * 2
+        # Vector search (sqlite-vec knn query)
+        limit = top_k * 2 if domain_filter else top_k
         results = self.conn.execute("""
             SELECT
                 v.chunk_id,
@@ -344,7 +461,7 @@ class VectorDBBuilder:
             ORDER BY v.distance
         """, (query_bytes, limit)).fetchall()
 
-        # 결과 변환 및 필터링
+        # Convert and filter results
         output = []
         for row in results:
             if domain_filter and row[6] != domain_filter:
@@ -352,8 +469,8 @@ class VectorDBBuilder:
 
             output.append({
                 "chunk_id": row[0],
-                "distance": row[1],
-                "similarity": 1 - row[1],  # cosine distance → similarity
+                "distance": float(row[1]),
+                "similarity": 1 - float(row[1]),
                 "chunk_text": row[2],
                 "source_file": row[3],
                 "heading_text": row[4],
@@ -367,77 +484,96 @@ class VectorDBBuilder:
         return output
 
     def close(self) -> None:
-        """DB 연결 종료"""
+        """Close database connection"""
         if self.conn:
             self.conn.close()
             self.conn = None
 
 
 def main():
-    """메인 함수"""
+    """Main function"""
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="chunked_data를 sqlite-vec 벡터 DB로 컴파일합니다."
+        description="Build sqlite-vec vector database from chunked parquet files"
     )
     parser.add_argument(
         "--input-dir",
         type=Path,
         default=INPUT_DIR,
-        help=f"입력 디렉터리 (기본값: {INPUT_DIR})",
+        help=f"Input directory (default: {INPUT_DIR})",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=OUTPUT_DIR,
-        help=f"출력 디렉터리 (기본값: {OUTPUT_DIR})",
+        help=f"Output directory (default: {OUTPUT_DIR})",
     )
     parser.add_argument(
         "--db-name",
         type=str,
         default="vectors.db",
-        help="DB 파일명 (기본값: vectors.db)",
+        help="Database filename (default: vectors.db)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=DEFAULT_MODEL,
+        help=f"Embedding model name (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "--export-parquet",
         action="store_true",
-        help="Milvus/Qdrant 이식용 Parquet 파일 내보내기",
+        help="Export Milvus/Qdrant compatible parquet file",
     )
     parser.add_argument(
         "--test-search",
         type=str,
         default=None,
-        help="빌드 후 테스트 검색 수행",
+        help="Run test search after build",
+    )
+    parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help="List supported embedding models",
     )
 
     args = parser.parse_args()
 
+    if args.list_models:
+        print("Supported embedding models:")
+        print("-" * 50)
+        for model, dim in MODEL_CONFIGS.items():
+            default = " (default)" if model == DEFAULT_MODEL else ""
+            print(f"  {model} (dim={dim}){default}")
+        return 0
+
     db_path = args.output_dir / args.db_name
-    builder = VectorDBBuilder(db_path)
+    builder = VectorDBBuilder(db_path, model_name=args.model)
 
     try:
-        # 빌드
+        # Build
         stats = builder.build(args.input_dir)
 
         if "error" in stats:
             return 1
 
-        # Parquet 내보내기
+        # Export parquet
         if args.export_parquet:
             export_path = args.output_dir / "vectors_export.parquet"
             builder.export_for_milvus(export_path)
 
-        # 테스트 검색
+        # Test search
         if args.test_search:
-            print(f"\n🔍 테스트 검색: '{args.test_search}'")
+            print(f"\n🔍 Test search: '{args.test_search}'")
             print("-" * 50)
 
             results = builder.search(args.test_search, top_k=3)
             for i, r in enumerate(results, 1):
-                print(f"\n[{i}] 유사도: {r['similarity']:.4f}")
-                print(f"    파일: {r['source_file']}")
-                print(f"    섹션: {' > '.join(r['section_path'])}")
-                print(f"    내용: {r['chunk_text'][:100]}...")
+                print(f"\n[{i}] Similarity: {r['similarity']:.4f}")
+                print(f"    File: {r['source_file']}")
+                print(f"    Section: {' > '.join(r['section_path'])}")
+                print(f"    Content: {r['chunk_text'][:100]}...")
 
         return 0
 
@@ -449,5 +585,5 @@ if __name__ == "__main__":
     try:
         exit(main())
     except KeyboardInterrupt:
-        print("\n[중단됨]")
+        print("\n[Interrupted]")
         exit(130)

@@ -1,9 +1,9 @@
 {
   "servers": {
-    "aipack-vector-search": {
+    "reconsidered-rag-search": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "python", "05_build_mcp_server.py"],
+      "args": ["run", "python", "04_build_mcp_server.py"],
       "cwd": "${workspaceFolder}"
     }
   }

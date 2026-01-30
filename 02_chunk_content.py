@@ -1,11 +1,12 @@
 """
-03_semantic_chunking.py
-Module that splits markdown files from prepared_contents using PIXIE-Rune embedding model
-for semantic chunking and saves as parquet files
+02_chunk_content.py
+Module that splits markdown files from prepared_contents using structure-based chunking
+and saves as parquet files
 
 Features:
 - Markdown structure parsing (preserves heading hierarchy)
-- PIXIE-Rune ONNX embedding-based semantic similarity chunking
+- Structure-based chunking (headings, paragraphs, lists, tables, code blocks)
+- No embedding model required - fast and deterministic
 - zstd compression and incremental update support
 """
 
@@ -16,136 +17,106 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Any, Optional
 
-import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import mistune
 
-from embedding_model import get_embedding_model, PIXIEEmbeddingModel
 
-# Suppress transformers tokenizer warnings
-import logging
-logging.getLogger("transformers.tokenization_utils_base").setLevel(logging.ERROR)
-
-
-def _deprecated_get_device_info() -> tuple[str, bool]:
-    """
-    Return available device and FP16 support status
-
-    Returns:
-        (device_name, use_fp16) tuple
-    """
-    if torch.cuda.is_available():
-        device_name = torch.cuda.get_device_name(0)
-        return device_name, True
-    elif torch.backends.mps.is_available():
-        # Apple Silicon (M1/M2/M3)
-        return "Apple MPS", False  # MPS는 FP16이 제한적
-    else:
-        return "CPU", False
-
-
-# 디렉터리 설정
+# Directory settings
 BASE_DIR = Path(__file__).parent
 INPUT_DIR = BASE_DIR / "prepared_contents"
 OUTPUT_DIR = BASE_DIR / "chunked_data"
 
-# 시맨틱 청킹 설정
-SIMILARITY_THRESHOLD = 0.5  # 유사도 임계값 (낮을수록 더 많은 청크 분할)
-MIN_CHUNK_SIZE = 50  # 최소 청크 크기 (문자 수)
-MAX_CHUNK_SIZE = 1500  # 최대 청크 크기 (문자 수)
+# Chunking settings
+MAX_CHUNK_SIZE = 2000  # Maximum chunk size (characters)
+MIN_CHUNK_SIZE = 100   # Minimum chunk size (characters)
+OVERLAP_SIZE = 100     # Overlap size for split paragraphs (characters)
 
 
 @dataclass
 class MarkdownSection:
-    """마크다운 섹션 정보"""
+    """Markdown section information"""
     text: str
-    heading_level: int = 0  # 0 = 일반 텍스트, 1-6 = 헤딩 레벨
+    heading_level: int = 0  # 0 = regular text, 1-6 = heading level
     heading_text: str = ""
-    section_path: list[str] = field(default_factory=list)  # 계층 경로 배열
+    section_path: list[str] = field(default_factory=list)
     element_type: str = "paragraph"  # header, paragraph, list, code, blockquote, table
     line_start: int = 0
     line_end: int = 0
-    # 표 전용 메타데이터
+    # Table-specific metadata
     table_headers: list[str] = field(default_factory=list)
     table_row_count: int = 0
 
 
 @dataclass
-class SemanticChunk:
-    """시맨틱 청크 정보"""
+class StructureChunk:
+    """Structure-based chunk information"""
     text: str
     heading_level: int = 0
     heading_text: str = ""
     parent_heading: str = ""
-    section_path: list[str] = field(default_factory=list)  # 계층 경로 배열
+    section_path: list[str] = field(default_factory=list)
     chunk_type: str = "paragraph"
     start_line: int = 0
     end_line: int = 0
-    # 표 전용 메타데이터
+    # Table-specific metadata
     table_headers: list[str] = field(default_factory=list)
     table_row_count: int = 0
 
 
 class MarkdownParser:
-    """Mistune 기반 마크다운 파서"""
+    """Mistune-based markdown parser"""
     
     def __init__(self):
         self.sections: list[MarkdownSection] = []
-        self.current_headings: dict[int, str] = {}  # level -> heading text
+        self.current_headings: dict[int, str] = {}
     
     def parse(self, markdown_text: str) -> list[MarkdownSection]:
         """
-        마크다운을 파싱하여 섹션 리스트 반환
+        Parse markdown and return section list
         
         Args:
-            markdown_text: 마크다운 텍스트
+            markdown_text: Markdown text
             
         Returns:
-            MarkdownSection 리스트
+            List of MarkdownSection
         """
         self.sections = []
         self.current_headings = {}
         
-        # mistune으로 AST 파싱 (table 플러그인 활성화)
+        # Parse with mistune (enable table plugin)
         md = mistune.create_markdown(renderer=None, plugins=['table'])
         tokens = md(markdown_text)
         
         if tokens is None:
             tokens = []
         
-        # 라인 번호 추적을 위해 원본 텍스트 분할
-        lines = markdown_text.split('\n')
-        current_line = 0
-        
         for token in tokens:
             if isinstance(token, dict):
-                self._process_token(token, lines, current_line)
+                self._process_token(token)
         
-        # 토큰 기반 파싱이 비어있으면 라인 기반 파싱으로 폴백
+        # Fallback to line-based parsing if token parsing fails
         if not self.sections:
             self._fallback_parse(markdown_text)
         
         return self.sections
     
-    def _process_token(self, token: dict, lines: list[str], line_offset: int) -> None:
-        """토큰 처리"""
+    def _process_token(self, token: dict) -> None:
+        """Process a single token"""
         token_type = token.get('type', '')
         
         if token_type == 'heading':
             level = token.get('attrs', {}).get('level', 1)
-            # children에서 텍스트 추출
             children = token.get('children', [])
             text = self._extract_text_from_children(children)
             
-            # 현재 헤딩 업데이트
+            # Update current heading
             self.current_headings[level] = text
-            # 하위 레벨 초기화
-            for l in range(level + 1, 7):
-                self.current_headings.pop(l, None)
+            # Clear lower level headings
+            for lv in range(level + 1, 7):
+                self.current_headings.pop(lv, None)
             
             section_path = self._build_section_path()
             
@@ -205,7 +176,6 @@ class MarkdownParser:
                 ))
         
         elif token_type == 'table':
-            # 표 처리: 전체 표를 하나의 청크로 유지
             table_text, headers, row_count = self._extract_table(token)
             if table_text.strip():
                 self.sections.append(MarkdownSection(
@@ -219,7 +189,7 @@ class MarkdownParser:
                 ))
     
     def _extract_text_from_children(self, children: list) -> str:
-        """children 토큰에서 텍스트 추출"""
+        """Extract text from children tokens"""
         texts = []
         for child in children:
             if isinstance(child, dict):
@@ -232,9 +202,9 @@ class MarkdownParser:
         return ''.join(texts)
     
     def _extract_list_text(self, items: list) -> str:
-        """리스트 아이템에서 텍스트 추출"""
+        """Extract text from list items"""
         texts = []
-        for i, item in enumerate(items):
+        for item in items:
             if isinstance(item, dict):
                 children = item.get('children', [])
                 item_text = self._extract_text_from_children(children)
@@ -243,7 +213,7 @@ class MarkdownParser:
     
     def _extract_table(self, token: dict) -> tuple[str, list[str], int]:
         """
-        표 토큰에서 텍스트, 헤더, 행 수 추출
+        Extract text, headers, and row count from table token
         
         Returns:
             (table_markdown, headers, row_count)
@@ -259,7 +229,6 @@ class MarkdownParser:
             child_type = child.get('type', '')
             
             if child_type == 'table_head':
-                # 표 헤더 추출 - table_head가 직접 table_cell을 포함
                 head_cells = child.get('children', [])
                 for cell in head_cells:
                     if isinstance(cell, dict) and cell.get('type') == 'table_cell':
@@ -269,7 +238,6 @@ class MarkdownParser:
                         headers.append(cell_text.strip())
             
             elif child_type == 'table_body':
-                # 표 본문 추출
                 body_rows = child.get('children', [])
                 for row in body_rows:
                     if isinstance(row, dict) and row.get('type') == 'table_row':
@@ -284,14 +252,13 @@ class MarkdownParser:
                         if row_data:
                             rows.append(row_data)
         
-        # 마크다운 표 형식으로 재구성
+        # Reconstruct markdown table
         md_lines = []
         if headers:
             md_lines.append('| ' + ' | '.join(headers) + ' |')
             md_lines.append('| ' + ' | '.join(['---'] * len(headers)) + ' |')
         
         for row in rows:
-            # 헤더 수에 맞춰 패딩
             padded_row = row + [''] * (len(headers) - len(row)) if headers else row
             md_lines.append('| ' + ' | '.join(padded_row) + ' |')
         
@@ -299,21 +266,21 @@ class MarkdownParser:
         return table_text, headers, len(rows)
     
     def _build_section_path(self) -> list[str]:
-        """현재 섹션 경로를 배열로 생성"""
+        """Build current section path as array"""
         parts = []
         for level in sorted(self.current_headings.keys()):
             parts.append(self.current_headings[level])
         return parts
     
     def _get_current_heading(self) -> str:
-        """현재 가장 깊은 헤딩 반환"""
+        """Get the deepest current heading"""
         if self.current_headings:
             max_level = max(self.current_headings.keys())
             return self.current_headings[max_level]
         return ""
     
     def _fallback_parse(self, markdown_text: str) -> None:
-        """라인 기반 폴백 파싱"""
+        """Line-based fallback parsing"""
         lines = markdown_text.split('\n')
         current_headings: dict[int, str] = {}
         current_paragraph: list[str] = []
@@ -323,13 +290,12 @@ class MarkdownParser:
                 text = '\n'.join(current_paragraph).strip()
                 if text:
                     section_path = [
-                        h for l, h in sorted(current_headings.items())
+                        h for _, h in sorted(current_headings.items())
                     ]
                     current_heading = current_headings.get(
                         max(current_headings.keys()) if current_headings else 0, ""
                     )
                     
-                    # 리스트인지 확인
                     is_list = all(
                         line.strip().startswith(('-', '*', '1.', '2.', '3.'))
                         for line in current_paragraph if line.strip()
@@ -344,22 +310,17 @@ class MarkdownParser:
                     ))
                 current_paragraph.clear()
         
-        # 표 감지 및 처리 함수
         def is_table_line(line: str) -> bool:
-            """표 라인인지 확인 (| 로 시작하고 끝남)"""
             s = line.strip()
             return s.startswith('|') and s.endswith('|')
         
         def is_separator_line(line: str) -> bool:
-            """표 구분선인지 확인 (|---|---|)"""
             s = line.strip()
             if not (s.startswith('|') and s.endswith('|')):
                 return False
-            # 중간에 ---가 포함되어 있는지
             return bool(re.match(r'^\|[\s\-:|]+\|$', s))
         
         def flush_table(table_lines: list[str], start_idx: int):
-            """표를 섹션으로 추가"""
             if not table_lines:
                 return
             
@@ -367,20 +328,18 @@ class MarkdownParser:
             headers: list[str] = []
             row_count = 0
             
-            # 첫 줄에서 헤더 추출
             if table_lines:
                 first_line = table_lines[0].strip()
                 if first_line.startswith('|') and first_line.endswith('|'):
                     cells = [c.strip() for c in first_line[1:-1].split('|')]
                     headers = [c for c in cells if c]
             
-            # 구분선 제외하고 데이터 행 수 계산
-            for tl in table_lines[2:]:  # 헤더, 구분선 제외
+            for tl in table_lines[2:]:
                 if is_table_line(tl) and not is_separator_line(tl):
                     row_count += 1
             
             section_path = [
-                h for l, h in sorted(current_headings.items())
+                h for _, h in sorted(current_headings.items())
             ]
             current_heading = current_headings.get(
                 max(current_headings.keys()) if current_headings else 0, ""
@@ -403,7 +362,6 @@ class MarkdownParser:
             line = lines[i]
             stripped = line.strip()
             
-            # 헤딩 감지
             heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
             if heading_match:
                 flush_paragraph()
@@ -411,14 +369,13 @@ class MarkdownParser:
                 level = len(heading_match.group(1))
                 heading_text = heading_match.group(2).strip()
                 
-                # 헤딩 업데이트
                 current_headings[level] = heading_text
-                for l in list(current_headings.keys()):
-                    if l > level:
-                        del current_headings[l]
+                for lv in list(current_headings.keys()):
+                    if lv > level:
+                        del current_headings[lv]
                 
                 section_path = [
-                    h for l, h in sorted(current_headings.items())
+                    h for _, h in sorted(current_headings.items())
                 ]
                 
                 self.sections.append(MarkdownSection(
@@ -432,11 +389,9 @@ class MarkdownParser:
                 ))
                 i += 1
             
-            # 표 감지 (| 로 시작하는 라인)
             elif is_table_line(stripped):
                 flush_paragraph()
                 
-                # 연속된 표 라인 수집
                 table_lines = [line]
                 table_start = i
                 i += 1
@@ -445,11 +400,9 @@ class MarkdownParser:
                     table_lines.append(lines[i])
                     i += 1
                 
-                # 최소 2줄 이상이면 표로 처리 (헤더 + 구분선)
                 if len(table_lines) >= 2:
                     flush_table(table_lines, table_start)
                 else:
-                    # 표가 아니면 일반 문단으로
                     current_paragraph.extend(table_lines)
             
             elif stripped == '':
@@ -463,138 +416,189 @@ class MarkdownParser:
         flush_paragraph()
 
 
-class SemanticChunker:
-    """PIXIE-Rune 기반 시맨틱 청킹"""
+class StructureChunker:
+    """Structure-based chunking (no embedding required)"""
     
     def __init__(
         self,
-        similarity_threshold: float = SIMILARITY_THRESHOLD,
-        min_chunk_size: int = MIN_CHUNK_SIZE,
         max_chunk_size: int = MAX_CHUNK_SIZE,
+        min_chunk_size: int = MIN_CHUNK_SIZE,
+        overlap_size: int = OVERLAP_SIZE,
     ):
-        self.similarity_threshold = similarity_threshold
-        self.min_chunk_size = min_chunk_size
         self.max_chunk_size = max_chunk_size
-        self.model: Optional[PIXIEEmbeddingModel] = None
+        self.min_chunk_size = min_chunk_size
+        self.overlap_size = overlap_size
         self.parser = MarkdownParser()
-        self._load_model()
     
-    def _load_model(self) -> None:
-        """PIXIE-Rune ONNX 모델 로드"""
-        self.model = get_embedding_model(use_onnx=True)
-        self.model.initialize()
-    
-    def _get_embeddings(self, texts: list[str]) -> np.ndarray:
-        """텍스트 리스트의 임베딩 계산"""
-        if not texts or self.model is None:
-            return np.array([])
-        
-        return self.model.encode(texts, batch_size=32, is_query=False)
-    
-    def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
-        """코사인 유사도 계산"""
-        return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
-    
-    def chunk_document(self, content: str, metadata: dict) -> list[SemanticChunk]:
+    def chunk_document(self, content: str, metadata: dict) -> list[StructureChunk]:
         """
-        문서를 시맨틱 청크로 분할
+        Split document into structure-based chunks
+        
+        Strategy:
+        1. Respect heading boundaries (each heading starts a new chunk)
+        2. Keep tables, code blocks, and lists intact if possible
+        3. Split large paragraphs at sentence boundaries with overlap
         
         Args:
-            content: 마크다운 문서 내용
-            metadata: 문서 메타데이터
+            content: Markdown document content
+            metadata: Document metadata
             
         Returns:
-            SemanticChunk 리스트
+            List of StructureChunk
         """
-        # 1. 마크다운 파싱
+        # 1. Parse markdown
         sections = self.parser.parse(content)
         
         if not sections:
-            return [SemanticChunk(
+            return [StructureChunk(
                 text=content,
                 chunk_type="document",
             )]
         
-        # 2. 섹션 텍스트 추출 및 임베딩
-        section_texts = [s.text for s in sections]
+        # 2. Group sections by heading
+        chunks: list[StructureChunk] = []
+        current_sections: list[MarkdownSection] = []
+        current_size = 0
         
-        if len(section_texts) <= 1:
-            # 섹션이 1개 이하면 그대로 반환
-            return [
-                SemanticChunk(
-                    text=s.text,
-                    heading_level=s.heading_level,
-                    heading_text=s.heading_text,
-                    parent_heading=self._get_parent_heading(s),
-                    section_path=s.section_path,
-                    chunk_type=s.element_type,
-                )
-                for s in sections
-            ]
-        
-        embeddings = self._get_embeddings(section_texts)
-        
-        # 3. 유사도 기반 청킹
-        chunks: list[SemanticChunk] = []
-        current_sections: list[MarkdownSection] = [sections[0]]
-        current_text_length = len(sections[0].text)
-        
-        for i in range(1, len(sections)):
-            section = sections[i]
-            prev_section = sections[i - 1]
+        for section in sections:
+            section_size = len(section.text)
             
-            # 헤딩은 항상 새 청크 시작
+            # Headings always start a new chunk
             if section.heading_level > 0:
-                # 이전 청크 저장
+                # Save previous chunk
                 if current_sections:
-                    chunks.append(self._merge_sections(current_sections))
+                    chunks.extend(self._finalize_chunk(current_sections))
                 current_sections = [section]
-                current_text_length = len(section.text)
+                current_size = section_size
                 continue
             
-            # 유사도 계산
-            similarity = self._cosine_similarity(embeddings[i], embeddings[i - 1])
+            # Tables, code blocks, and lists: keep intact if possible
+            if section.element_type in ("table", "code", "list"):
+                if section_size > self.max_chunk_size:
+                    # Too large - save as separate chunk anyway
+                    if current_sections:
+                        chunks.extend(self._finalize_chunk(current_sections))
+                    chunks.append(self._section_to_chunk(section))
+                    current_sections = []
+                    current_size = 0
+                elif current_size + section_size > self.max_chunk_size:
+                    # Would exceed max - save current and start new
+                    if current_sections:
+                        chunks.extend(self._finalize_chunk(current_sections))
+                    current_sections = [section]
+                    current_size = section_size
+                else:
+                    current_sections.append(section)
+                    current_size += section_size
+                continue
             
-            # 청크 분할 조건:
-            # 1. 유사도가 임계값 미만
-            # 2. 또는 최대 크기 초과
-            should_split = (
-                similarity < self.similarity_threshold
-                or current_text_length + len(section.text) > self.max_chunk_size
-            )
-            
-            if should_split and current_text_length >= self.min_chunk_size:
-                # 이전 청크 저장
-                chunks.append(self._merge_sections(current_sections))
-                current_sections = [section]
-                current_text_length = len(section.text)
+            # Regular paragraphs
+            if current_size + section_size > self.max_chunk_size:
+                # Would exceed max
+                if current_sections:
+                    chunks.extend(self._finalize_chunk(current_sections))
+                
+                # Check if this section itself is too large
+                if section_size > self.max_chunk_size:
+                    # Split large paragraph
+                    chunks.extend(self._split_large_section(section))
+                    current_sections = []
+                    current_size = 0
+                else:
+                    current_sections = [section]
+                    current_size = section_size
             else:
-                # 현재 청크에 추가
                 current_sections.append(section)
-                current_text_length += len(section.text)
+                current_size += section_size
         
-        # 마지막 청크 저장
+        # Save remaining sections
         if current_sections:
-            chunks.append(self._merge_sections(current_sections))
+            chunks.extend(self._finalize_chunk(current_sections))
         
         return chunks
     
-    def _merge_sections(self, sections: list[MarkdownSection]) -> SemanticChunk:
-        """여러 섹션을 하나의 청크로 병합"""
+    def _finalize_chunk(self, sections: list[MarkdownSection]) -> list[StructureChunk]:
+        """Convert sections to chunks, splitting if too large"""
         if not sections:
-            return SemanticChunk(text="")
+            return []
         
-        # 첫 번째 섹션의 메타데이터 사용
+        total_size = sum(len(s.text) for s in sections)
+        
+        if total_size <= self.max_chunk_size:
+            return [self._merge_sections(sections)]
+        
+        # Split by sections
+        result = []
+        current = []
+        current_size = 0
+        
+        for section in sections:
+            section_size = len(section.text)
+            
+            if current_size + section_size > self.max_chunk_size and current:
+                result.append(self._merge_sections(current))
+                current = [section]
+                current_size = section_size
+            else:
+                current.append(section)
+                current_size += section_size
+        
+        if current:
+            result.append(self._merge_sections(current))
+        
+        return result
+    
+    def _split_large_section(self, section: MarkdownSection) -> list[StructureChunk]:
+        """Split a large section at sentence boundaries with overlap"""
+        text = section.text
+        
+        # Split by sentences (simple heuristic)
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        chunks = []
+        current_text = ""
+        
+        for sentence in sentences:
+            if len(current_text) + len(sentence) > self.max_chunk_size:
+                if current_text:
+                    chunks.append(StructureChunk(
+                        text=current_text.strip(),
+                        heading_level=section.heading_level,
+                        heading_text=section.heading_text,
+                        section_path=section.section_path,
+                        chunk_type=section.element_type,
+                    ))
+                    # Add overlap from end of previous chunk
+                    overlap = current_text[-self.overlap_size:] if len(current_text) > self.overlap_size else ""
+                    current_text = overlap + " " + sentence
+                else:
+                    current_text = sentence
+            else:
+                current_text = current_text + " " + sentence if current_text else sentence
+        
+        if current_text.strip():
+            chunks.append(StructureChunk(
+                text=current_text.strip(),
+                heading_level=section.heading_level,
+                heading_text=section.heading_text,
+                section_path=section.section_path,
+                chunk_type=section.element_type,
+            ))
+        
+        return chunks if chunks else [self._section_to_chunk(section)]
+    
+    def _merge_sections(self, sections: list[MarkdownSection]) -> StructureChunk:
+        """Merge multiple sections into one chunk"""
+        if not sections:
+            return StructureChunk(text="")
+        
         first = sections[0]
-        
-        # 텍스트 병합
         merged_text = "\n\n".join(s.text for s in sections)
         
-        # 타입 결정 (가장 많은 타입 또는 첫 번째)
         types = [s.element_type for s in sections]
         chunk_type = max(set(types), key=types.count)
         
-        # 표인 경우 메타데이터 전달
+        # Preserve table metadata
         table_headers: list[str] = []
         table_row_count = 0
         for s in sections:
@@ -603,7 +607,7 @@ class SemanticChunker:
                 table_row_count = s.table_row_count
                 break
         
-        return SemanticChunk(
+        return StructureChunk(
             text=merged_text,
             heading_level=first.heading_level,
             heading_text=first.heading_text,
@@ -614,8 +618,21 @@ class SemanticChunker:
             table_row_count=table_row_count,
         )
     
+    def _section_to_chunk(self, section: MarkdownSection) -> StructureChunk:
+        """Convert a single section to chunk"""
+        return StructureChunk(
+            text=section.text,
+            heading_level=section.heading_level,
+            heading_text=section.heading_text,
+            parent_heading=self._get_parent_heading(section),
+            section_path=section.section_path,
+            chunk_type=section.element_type,
+            table_headers=section.table_headers,
+            table_row_count=section.table_row_count,
+        )
+    
     def _get_parent_heading(self, section: MarkdownSection) -> str:
-        """부모 헤딩 추출"""
+        """Extract parent heading"""
         path = section.section_path
         if len(path) >= 2:
             return path[-2]
@@ -623,7 +640,7 @@ class SemanticChunker:
 
 
 def parse_markdown_with_frontmatter(file_path: Path) -> tuple[dict, str]:
-    """YAML front matter가 있는 마크다운 파일 파싱"""
+    """Parse markdown file with YAML front matter"""
     text = file_path.read_text(encoding="utf-8")
     
     if text.startswith("---"):
@@ -640,24 +657,24 @@ def parse_markdown_with_frontmatter(file_path: Path) -> tuple[dict, str]:
 
 
 def generate_chunk_id(source_file: str, chunk_index: int, chunk_text: str) -> str:
-    """청크 고유 ID 생성"""
+    """Generate unique chunk ID"""
     hash_input = f"{source_file}:{chunk_index}:{chunk_text[:100]}"
     return hashlib.md5(hash_input.encode()).hexdigest()[:16]
 
 
 def generate_content_hash(text: str) -> str:
-    """콘텐츠 해시 생성"""
+    """Generate content hash"""
     return hashlib.sha256(text.encode()).hexdigest()
 
 
 def generate_source_hash(content: str, metadata: dict) -> str:
-    """소스 파일 전체 해시"""
+    """Generate source file hash"""
     hash_input = content + json.dumps(metadata, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(hash_input.encode()).hexdigest()[:32]
 
 
 def load_existing_parquet(file_path: Path) -> tuple[pd.DataFrame | None, dict]:
-    """기존 parquet 파일 로드"""
+    """Load existing parquet file"""
     if not file_path.exists():
         return None, {}
     
@@ -674,12 +691,12 @@ def load_existing_parquet(file_path: Path) -> tuple[pd.DataFrame | None, dict]:
         }
         return df, metadata
     except Exception as e:
-        print(f"⚠️ 기존 파일 로드 실패: {e}")
+        print(f"⚠️ Failed to load existing file: {e}")
         return None, {}
 
 
 def check_needs_update(existing_meta: dict, new_source_hash: str) -> bool:
-    """업데이트 필요 여부 확인"""
+    """Check if update is needed"""
     if not existing_meta:
         return True
     return existing_meta.get("source_hash") != new_source_hash
@@ -690,7 +707,7 @@ def merge_chunks(
     new_records: list[dict],
     existing_meta: dict,
 ) -> tuple[list[dict], dict]:
-    """증분 업데이트 병합"""
+    """Incremental update merge"""
     stats = {"added": 0, "updated": 0, "unchanged": 0, "deleted": 0}
     
     if existing_df is None or existing_df.empty:
@@ -735,14 +752,15 @@ def merge_chunks(
 def process_documents(
     input_dir: Path = INPUT_DIR,
     output_dir: Path = OUTPUT_DIR,
-    similarity_threshold: float = SIMILARITY_THRESHOLD,
+    max_chunk_size: int = MAX_CHUNK_SIZE,
+    min_chunk_size: int = MIN_CHUNK_SIZE,
 ):
-    """문서 처리 메인 함수"""
+    """Main document processing function"""
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     
     if not input_dir.exists():
-        print(f"⚠️ 입력 디렉터리가 없습니다: {input_dir}")
+        print(f"⚠️ Input directory does not exist: {input_dir}")
         return
     
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -750,51 +768,54 @@ def process_documents(
     md_files = list(input_dir.glob("*.md"))
     
     if not md_files:
-        print(f"⚠️ 처리할 마크다운 파일이 없습니다: {input_dir}")
+        print(f"⚠️ No markdown files to process: {input_dir}")
         return
     
-    print(f"\n📚 처리할 문서: {len(md_files)}개")
+    print(f"\n📚 Documents to process: {len(md_files)}")
     print("=" * 50)
     
-    # 청커 로드
-    chunker = SemanticChunker(similarity_threshold=similarity_threshold)
+    # Initialize chunker
+    chunker = StructureChunker(
+        max_chunk_size=max_chunk_size,
+        min_chunk_size=min_chunk_size,
+    )
     
     success_count = 0
     total_chunks = 0
     
     for i, md_file in enumerate(md_files, 1):
-        print(f"\n[{i}/{len(md_files)}] 처리 중: {md_file.name}")
+        print(f"\n[{i}/{len(md_files)}] Processing: {md_file.name}")
         
         try:
-            # 마크다운 파싱
+            # Parse markdown
             metadata, content = parse_markdown_with_frontmatter(md_file)
-            print(f"   📖 문서 길이: {len(content)} 문자")
+            print(f"   📖 Document length: {len(content)} characters")
             
-            # 소스 해시 계산
+            # Calculate source hash
             source_hash = generate_source_hash(content, metadata)
             output_file = output_dir / f"{md_file.stem}.parquet"
             
-            # 기존 파일 확인
+            # Check existing file
             existing_df, existing_meta = load_existing_parquet(output_file)
             
-            # 변경 여부 확인
+            # Check if update needed
             if not check_needs_update(existing_meta, source_hash):
-                print(f"   ⏭️ 변경 없음, 스킵")
+                print(f"   ⏭️ No changes, skipping")
                 success_count += 1
                 if existing_df is not None:
                     total_chunks += len(existing_df)
                 continue
             
-            # 시맨틱 청킹
-            print("   🔍 시맨틱 청킹 중...")
+            # Structure-based chunking
+            print("   🔍 Structure-based chunking...")
             chunks = chunker.chunk_document(content, metadata)
-            print(f"   ✓ 생성된 청크: {len(chunks)}개")
+            print(f"   ✓ Generated chunks: {len(chunks)}")
             
             now = datetime.now().isoformat()
             new_version = existing_meta.get("version", 0) + 1
             created_at = existing_meta.get("created_at") or now
             
-            # 레코드 구성
+            # Build records
             records = []
             for idx, chunk in enumerate(chunks):
                 chunk_id = generate_chunk_id(md_file.name, idx, chunk.text)
@@ -807,34 +828,34 @@ def process_documents(
                     "chunk_index": idx,
                     "chunk_text": chunk.text,
                     "chunk_type": chunk.chunk_type,
-                    # Hierarchy 정보 (section_path는 배열)
+                    # Hierarchy info
                     "heading_level": chunk.heading_level,
                     "heading_text": chunk.heading_text,
                     "parent_heading": chunk.parent_heading,
-                    "section_path": chunk.section_path,  # list[str]
-                    # 표 메타데이터
-                    "table_headers": chunk.table_headers,  # list[str]
+                    "section_path": chunk.section_path,
+                    # Table metadata
+                    "table_headers": chunk.table_headers,
                     "table_row_count": chunk.table_row_count,
-                    # 메타데이터
+                    # Metadata
                     "domain": metadata.get("domain", ""),
                     "sub_domain": metadata.get("sub_domain", ""),
                     "keywords": json.dumps(metadata.get("keywords", []), ensure_ascii=False),
                     "language": metadata.get("language", ""),
                     "content_type": metadata.get("content_type", ""),
-                    # 버전 관리
+                    # Version
                     "version": 1,
                     "created_at": now,
                     "updated_at": now,
                 })
             
-            # 증분 업데이트 병합
+            # Incremental update merge
             merged_records, update_stats = merge_chunks(existing_df, records, existing_meta)
             
             if existing_df is not None:
-                print(f"   📊 증분 업데이트: 추가 {update_stats['added']}, 수정 {update_stats['updated']}, "
-                      f"유지 {update_stats['unchanged']}, 삭제 {update_stats['deleted']}")
+                print(f"   📊 Incremental update: added {update_stats['added']}, updated {update_stats['updated']}, "
+                      f"unchanged {update_stats['unchanged']}, deleted {update_stats['deleted']}")
             
-            # Parquet 저장
+            # Save as Parquet
             df = pd.DataFrame(merged_records)
             
             schema = pa.schema([
@@ -844,14 +865,14 @@ def process_documents(
                 ("chunk_index", pa.int32()),
                 ("chunk_text", pa.string()),
                 ("chunk_type", pa.string()),
-                # Hierarchy (section_path는 배열)
+                # Hierarchy
                 ("heading_level", pa.int32()),
                 ("heading_text", pa.string()),
                 ("parent_heading", pa.string()),
-                ("section_path", pa.list_(pa.string())),  # 배열 타입
+                ("section_path", pa.list_(pa.string())),
                 # Table metadata
-                ("table_headers", pa.list_(pa.string())),  # 표 컬럼 헤더
-                ("table_row_count", pa.int32()),  # 표 행 수
+                ("table_headers", pa.list_(pa.string())),
+                ("table_row_count", pa.int32()),
                 # Metadata
                 ("domain", pa.string()),
                 ("sub_domain", pa.string()),
@@ -870,7 +891,7 @@ def process_documents(
                 b"created_at": created_at.encode(),
                 b"updated_at": now.encode(),
                 b"schema_version": b"2.0",
-                b"chunking_method": b"semantic_bge_m3",
+                b"chunking_method": b"structure_based",
             }
             
             table = pa.Table.from_pandas(df, schema=schema)
@@ -883,46 +904,52 @@ def process_documents(
                 compression_level=3,
             )
             
-            print(f"   💾 저장: {output_file.name} (v{new_version}, zstd 압축)")
+            print(f"   💾 Saved: {output_file.name} (v{new_version}, zstd compression)")
             
             success_count += 1
             total_chunks += len(chunks)
             
         except Exception as e:
-            print(f"   ❌ 오류: {e}")
+            print(f"   ❌ Error: {e}")
             import traceback
             traceback.print_exc()
     
     print("\n" + "=" * 50)
-    print(f"✅ 완료: {success_count}/{len(md_files)} 문서 처리됨")
-    print(f"📊 총 청크 수: {total_chunks}개")
-    print(f"📁 출력 위치: {output_dir}")
+    print(f"✅ Complete: {success_count}/{len(md_files)} documents processed")
+    print(f"📊 Total chunks: {total_chunks}")
+    print(f"📁 Output location: {output_dir}")
 
 
 def main():
-    """메인 함수"""
+    """Main function"""
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="마크다운 문서를 시맨틱 청킹하여 parquet으로 저장합니다."
+        description="Split markdown documents into structure-based chunks and save as parquet."
     )
     parser.add_argument(
         "--input-dir",
         type=Path,
         default=INPUT_DIR,
-        help=f"입력 디렉터리 (기본값: {INPUT_DIR})",
+        help=f"Input directory (default: {INPUT_DIR})",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=OUTPUT_DIR,
-        help=f"출력 디렉터리 (기본값: {OUTPUT_DIR})",
+        help=f"Output directory (default: {OUTPUT_DIR})",
     )
     parser.add_argument(
-        "--similarity-threshold",
-        type=float,
-        default=SIMILARITY_THRESHOLD,
-        help=f"유사도 임계값 (기본값: {SIMILARITY_THRESHOLD})",
+        "--max-chunk-size",
+        type=int,
+        default=MAX_CHUNK_SIZE,
+        help=f"Maximum chunk size in characters (default: {MAX_CHUNK_SIZE})",
+    )
+    parser.add_argument(
+        "--min-chunk-size",
+        type=int,
+        default=MIN_CHUNK_SIZE,
+        help=f"Minimum chunk size in characters (default: {MIN_CHUNK_SIZE})",
     )
     
     args = parser.parse_args()
@@ -930,7 +957,8 @@ def main():
     process_documents(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        similarity_threshold=args.similarity_threshold,
+        max_chunk_size=args.max_chunk_size,
+        min_chunk_size=args.min_chunk_size,
     )
 
 
@@ -938,5 +966,5 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[중단됨]")
+        print("\n[Interrupted]")
         exit(130)
