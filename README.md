@@ -9,174 +9,148 @@ English | **[한국어](README.ko.md)**
 
 [![Watch the demo](https://img.youtube.com/vi/Uj6Vz5CZ4c4/maxresdefault.jpg)](https://youtu.be/Uj6Vz5CZ4c4)
 
-Reconsidered RAG is a reference project that rethinks how Retrieval-Augmented Generation
-should be applied in environments where responsibility, data sovereignty,
-and failure boundaries matter.
-
-This project was formerly known as **AIPACK**.
+**Rethinking how RAG datasets should be prepared: offline, portable, and infrastructure-agnostic.**
 
 ---
 
-## Why this project exists
+## What this project does
 
-Reconsidered RAG exists to question an assumption that has quietly become common:
-that retrieval-augmented generation should always aim to answer more, faster, and better.
+```text
+[Offline Preparation]                  [Online Serving]
+─────────────────────                  ─────────────────
+Documents (PDF, DOCX, ...)             Milvus
+        ↓                              Qdrant
+Markdown + Metadata                    Pinecone
+        ↓                              Chroma
+Semantic Chunking                      or sqlite-vec as-is
+        ↓
+   Parquet files  ─────────────────→   Port to any environment
+```
 
-In regulated, sensitive, or responsibility-heavy environments,
-those goals often conflict with reality.
+**Core values:**
 
-This project focuses on:
-
-- where retrieval boundaries should be drawn,
-- when a system should refuse to answer,
-- and how responsibility remains with the operator, not the model or the service.
-
-The code in this repository serves as a **reference implementation**
-to support these discussions, not as a blueprint to be copied verbatim.
-
----
-
-## What this project is NOT
-
-Reconsidered RAG is intentionally **not** positioned as the following:
-
-- **Not a product or service**  
-  This project is not a SaaS, platform, or deployable solution for general users.
-  It does not aim to provide turnkey deployments or production guarantees.
-
-- **Not a framework or toolkit**  
-  Reconsidered RAG does not attempt to standardize how RAG *should* be built.
-  It documents how RAG *can fail*, and where boundaries must be drawn.
-
-- **Not a performance benchmark**  
-  Model quality, retrieval speed, or accuracy scores are not the primary focus.
-  Faster answers are meaningless if responsibility and control are unclear.
-
-- **Not a generic AI abstraction layer**  
-  Complexity is not hidden behind convenience.
-  Explicit constraints and visible trade-offs are considered part of the design.
-
-- **Not a promise of safety**  
-  This project does not claim that AI systems can be made fully safe.
-  It exists to make risks explicit, discussable, and owned by the operator.
+- 🖥️ **No GPU required** — CPU-only embedding with ONNX optimization
+- 📦 **Parquet-based** — Universal format, portable anywhere
+- 🔒 **Offline preparation** — Data never leaves your machine
+- 🔄 **Re-embedding friendly** — Switch to better models anytime
 
 ---
 
-## Design Principles
+## Why this approach?
 
-Reconsidered RAG is guided by the following principles:
-
-- **Explicit boundaries over implicit behavior**  
-  Every retrieval scope, data flow, and integration point should be visible
-  and explainable. Hidden defaults are treated as a design failure.
-
-- **Responsibility is owned, not abstracted away**  
-  Decisions made by the system must have a clear owner.
-  External services do not absolve operators from accountability.
-
-- **Refusal is a valid and expected outcome**  
-  The system is allowed to say "no" when inputs exceed defined boundaries.
-  Answering every question is not a goal.
-
-- **Constraints are part of the feature set**  
-  Limitations, trade-offs, and non-goals are documented explicitly.
-  Convenience is secondary to clarity.
-
-- **Failure modes matter more than success cases**  
-  This project prioritizes understanding how and where RAG systems fail,
-  especially under ambiguous or adversarial conditions.
+| Situation | This project's approach |
+| ----------- | ------------------------ |
+| Haven't decided on a vector DB yet | Prepare as parquet, decide later |
+| No GPU server available | Process with ONNX on CPU |
+| Can't send data to cloud | Everything runs locally |
+| Better embedding model comes out later | Text is in parquet, just re-compute |
+| Want to prototype quickly | Test immediately with sqlite-vec |
 
 ---
 
-## Failure modes we explicitly care about
+## Pipeline
 
-Reconsidered RAG pays particular attention to failure modes such as:
+| Step | Script | Input | Output |
+| ------ | -------- | ------- | -------- |
+| 1 | `01_download_model.py` | - | ONNX model (cache/) |
+| 2 | `02_prepare_content.py` | Documents (input_docs/) | Markdown (prepared_contents/) |
+| 3 | `03_semantic_chunking.py` | Markdown | Chunk parquet (chunked_data/) |
+| 4 | `04_build_vector_db.py` | Chunk parquet | Vector DB (vector_db/) |
+| 5 | `05_mcp_server.py` | Vector DB | MCP server (for testing) |
 
-- silent expansion of retrieval scope,
-- accidental inclusion of sensitive or unintended documents,
-- overconfident answers derived from weakly grounded context,
-- lack of an explicit refusal path,
-- and unclear ownership when things go wrong.
-
-These are not edge cases.
-They are expected outcomes when RAG systems are deployed without explicit boundaries.
-
----
-
-## Reference implementation (non-goals first)
-
-The implementation in this repository intentionally favors:
-
-- transparent intermediate artifacts over opaque pipelines,
-- database portability over aggressive optimization,
-- inspection and reasoning over automation.
-
-These choices are not meant to define "the right way" to build RAG systems.
-They exist to make trade-offs and failure modes visible.
-
-Concretely, this means:
-
-- intermediate data stored in inspectable formats (such as parquet),
-- an MCP server used for controlled inspection, not production serving,
-- and deliberate avoidance of early commitment to specific databases or vendors.
+**All intermediate results are saved as parquet.** You can export from any step and migrate to another system.
 
 ---
 
-## Implementation details
+## Vector DB Portability
 
-For detailed implementation documentation including:
+Files exported with `04_build_vector_db.py --export-parquet` can be directly imported to:
 
-- Architecture and data flow diagrams
-- Installation and setup instructions
-- Module descriptions and usage
-- Configuration options
-- Containerization with Docker
-- IDE integration (VS Code, Cursor)
-- Output schema and directory structure
+| Vector DB | Import Method |
+| ----------- | --------------- |
+| **Milvus** | `pymilvus` `insert()` |
+| **Qdrant** | REST API or Python client `upsert()` |
+| **Pinecone** | `upsert()` |
+| **Chroma** | `add()` |
 
-See **[IMPLEMENTATION.md](IMPLEMENTATION.md)**.
+Vector format: `float32[1024]` (PIXIE-Rune Dense vectors)
+
+**Want to re-compute embeddings?**  
+Original text (`chunk_text`) is in parquet — use OpenAI `text-embedding-3-large`, Cohere, or any model you prefer.
 
 ---
 
-## Scope and intended audience
+## Quick Start
 
-Reconsidered RAG is written for:
+```bash
+# Install dependencies
+uv sync
 
-- engineers working in regulated or sensitive environments,
-- architects responsible for AI adoption decisions,
-- and practitioners who have experienced RAG failures firsthand.
+# 1. Download model + ONNX conversion (one-time)
+uv run python 01_download_model.py
 
-It is not optimized for beginners,
-nor for teams seeking quick production wins.
+# 2. Prepare documents (put files in input_docs/)
+uv run python 02_prepare_content.py
+
+# 3. Semantic chunking
+uv run python 03_semantic_chunking.py
+
+# 4. Build vector DB (+ export parquet)
+uv run python 04_build_vector_db.py --export-parquet
+
+# 5. (Optional) Test with MCP server
+uv run python 05_mcp_server.py
+```
+
+---
+
+## Supported File Formats
+
+| Category | Extensions |
+| ---------- | ------------ |
+| Office | `.docx`, `.xlsx`, `.pptx`, etc. |
+| PDF/Web | `.pdf`, `.html`, `.xml`, `.json`, `.csv` |
+| Markdown/Text | `.md`, `.txt`, `.rst` |
+| Images (EXIF/OCR) | `.jpg`, `.png`, `.webp`, etc. |
+| Audio (Speech-to-text) | `.mp3`, `.wav`, `.m4a`, etc. |
+| Video (Subtitle extraction) | `.mp4`, `.mkv`, `.avi`, etc. |
+| Code | `.py`, `.js`, `.ts`, `.java`, etc. |
+
+---
+
+## About Speed
+
+**This project is not fast.** And that's okay.
+
+- This is an **offline preparation tool**
+- You build it once
+- Production serving happens in faster environments (GPU, cloud vector DBs)
+
+If speed is your top priority, use OpenAI Embeddings API + Pinecone.  
+**If your goal is to prepare data without sending it outside**, this project is for you.
+
+---
+
+## Detailed Documentation
+
+For installation, configuration, Docker, IDE integration, and more, see **[IMPLEMENTATION.md](IMPLEMENTATION.md)**.
 
 ---
 
 ## License
 
-This project is licensed under the [Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE)
 
 ## Sponsorship
 
-If you find this project helpful and would like to support its continued development,
-please consider sponsoring on GitHub Sponsors.
-Your support helps maintain and improve this open-source project.
+If you find this project helpful, please consider sponsoring on GitHub Sponsors.
 
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/rkttu)](https://github.com/sponsors/rkttu)
 
 ## Contributing
 
-1. Fork this repository.
-2. Create a new branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Create a Pull Request.
-
----
-
-## Final note
-
-Reconsidered RAG exists to slow decisions down,
-not to accelerate deployments.
-
-If this repository makes you pause before adding "just one more document"
-to your retrieval pipeline, it has done its job.
+1. Fork this repository
+2. Create a branch: `git checkout -b feature/amazing-feature`
+3. Commit: `git commit -m 'Add amazing feature'`
+4. Push: `git push origin feature/amazing-feature`
+5. Create a Pull Request
